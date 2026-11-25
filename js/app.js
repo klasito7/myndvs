@@ -67,7 +67,7 @@ const DB = {
 };
 
 /* ---------- ajustes (chicos: localStorage) ---------- */
-const APP_V = '1.4 (25/11)';
+const APP_V = '1.5 (25/11)';
 const CFG_KEY = 'myndvs-cfg';
 let cfg = { gcid: '', gsync: '', glast: 0, gerr: '', ghtok: '', gist: '', mgist: '', login: '', clast: 0, cerr: '', up: [], mdel: [] };
 try { cfg = Object.assign(cfg, JSON.parse(localStorage.getItem(CFG_KEY) || '{}')); } catch (e) { /* sin almacenamiento */ }
@@ -105,7 +105,7 @@ const isNote = x => x.k === 'note' && !x.gone, isEv = x => x.k === 'ev' && !x.de
 const notes = () => [...ITEMS.values()].filter(isNote);
 const events = () => [...ITEMS.values()].filter(isEv);
 const tasks = () => [...ITEMS.values()].filter(isTask);
-let tab = 'hoy', selDay = today(), calMonth = today().slice(0, 7), noteFilter = 'todas', noteTag = '', query = '', capOver = null, showDone = false;
+let tab = 'hoy', selDay = today(), noteFilter = 'todas', noteTag = '', query = '', capOver = null, showDone = false;
 
 async function save(it, opt) {
   opt = opt || {};
@@ -201,6 +201,7 @@ function render() {
   const v = $('#view');
   v.innerHTML = query ? vSearch() : tab === 'hoy' ? vHoy() : tab === 'notas' ? vNotas() : tab === 'cal' ? vCal() : tab === 'diario' ? vDiario() : vTareas();
   if (tab === 'diario' && !query) bindDiary();
+  if (tab === 'cal' && !query) calAfter();
   hydrate(v);
   syncDot(); capUI();
 }
@@ -295,23 +296,6 @@ function vNotas() {
     ${Object.keys(tags).sort().map(t => `<button class="chip tagc" data-a="ntag" data-t="${esc(t)}" aria-pressed="${noteTag === t}">#${esc(t)}</button>`).join('')}</div>
     ${noteFilter === 'papelera' && L.length ? '<p class="mute">Se borran solas a los 30 días. <button class="link" data-a="emptyTrash">Vaciar papelera</button></p>' : ''}
     ${L.length ? `<div class="grid">${L.map(noteCard).join('')}</div>` : `<p class="empty">${noteFilter === 'papelera' ? 'La papelera está vacía.' : noteFilter === 'archivo' ? 'No archivaste nada.' : 'No hay notas acá todavía.'}</p>`}`;
-}
-function vCal() {
-  const [y, mo] = calMonth.split('-').map(Number), first = new Date(y, mo - 1, 1), start = (first.getDay() + 6) % 7, days = new Date(y, mo, 0).getDate();
-  const cells = [], t = today();
-  for (let i = 0; i < start; i++) cells.push('<span class="cd off"></span>');
-  for (let d = 1; d <= days; d++) {
-    const k = `${calMonth}-${String(d).padStart(2, '0')}`, evs = evOn(k), tk = tasksDue(k).filter(x => !x.done);
-    const dots = evs.slice(0, 3).map(e => `<i style="background:${ECOL[e.color || '']}"></i>`).join('') + (tk.length ? '<i class="tk"></i>' : '');
-    cells.push(`<button class="cd${k === t ? ' tod' : ''}${k === selDay ? ' sel' : ''}${evs.length > 3 ? ' many' : ''}" data-a="day" data-k="${k}"><b>${d}</b><span>${dots}</span></button>`);
-  }
-  const evs = evOn(selDay), tk = tasksDue(selDay);
-  const title = cap1(first.toLocaleDateString('es-AR', { month: 'long' })) + ' ' + y;
-  return `<div class="calhead"><button class="ib" data-a="mprev" aria-label="Mes anterior">${ICO.back}</button><h2>${title}</h2><button class="ib flip" data-a="mnext" aria-label="Mes siguiente">${ICO.back}</button><button class="chip" data-a="mtoday">Hoy</button></div>
-  <div class="cal"><div class="wd">${['L', 'M', 'M', 'J', 'V', 'S', 'D'].map(x => `<span>${x}</span>`).join('')}</div><div class="cells">${cells.join('')}</div></div>
-  <section><h2 class="dh">${fmtLong(selDay)}<button class="chip add" data-a="newEv">${ICO.plus} Evento</button></h2>
-    ${evs.length ? evs.map(e => evRow(e, selDay)).join('') : '<p class="empty">Libre. Escribí abajo para agendar (ej: <b>16 a 18 turno médico</b>).</p>'}
-    ${tk.length ? '<h3>Tareas que vencen</h3>' + tk.map(taskRow).join('') : ''}</section>`;
 }
 function vTareas() {
   const t = today(), all = tasks(), open = all.filter(x => !x.done);
@@ -1044,9 +1028,6 @@ document.addEventListener('click', async e => {
     case 'rmMedia': { const mid = b.dataset.m; curNote.media = curNote.media.filter(x => x.id !== mid); await DB.del('blobs', mid); if ((cfg.up || []).includes(mid)) { cfg.mdel.push(mid); saveCfg(); } refreshNoteEditor(); break; }
     case 'openEv': { const ev = ITEMS.get(id); if (ev) evEditor(ev, b.dataset.day); break; }
     case 'newEv': evEditor({ id: uid(), k: 'ev', title: '', date: selDay, start: null, end: null, color: '', notes: '', rep: '', lb: 'auto', ex: [] }); break;
-    case 'day': selDay = b.dataset.k; render(); break;
-    case 'mprev': case 'mnext': { const [y, m] = calMonth.split('-').map(Number), d = new Date(y, m - 1 + (a === 'mnext' ? 1 : -1), 1); calMonth = dk(d).slice(0, 7); render(); break; }
-    case 'mtoday': calMonth = today().slice(0, 7); selDay = today(); render(); break;
     case 'tick': toggleTask(id); break;
     case 'openTask': { const t = ITEMS.get(id); if (t) taskEditor(t); break; }
     case 'toggleDone': showDone = !showDone; render(); break;

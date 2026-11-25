@@ -3,7 +3,7 @@
    se suman sus pasos con un v nuevo y se sube TOUR_V: la próxima vez que se abra, ofrece "Novedades"
    con solo esos pasos. El tutorial completo siempre muestra todos. */
 'use strict';
-const TOUR_V = 3;
+const TOUR_V = 4;
 const TOUR_KEY = 'myndvs-tour';
 const firstNote = () => notes().filter(n => !n.del && !n.arch).sort((a, b) => (b.pin - a.pin) || ((b.u || b.c) - (a.u || a.c)))[0];
 const STEPS = [
@@ -19,8 +19,9 @@ const STEPS = [
   { v: 1, tab: 'notas', sel: '.chips', t: 'Notas', x: 'Filtrá por audios, imágenes, archivo o papelera. Cada <b>#etiqueta</b> que escribas en una nota aparece acá como filtro.' },
   { v: 1, tab: 'notas', sel: '.grid .note', t: 'Abrí una nota', x: 'Tocándola se abre. Las listas con <b>[ ]</b> se tildan directo desde la tarjeta.' },
   { v: 1, sheet: () => { const n = firstNote(); if (n) noteEditor(n); }, sel: '.edtools', t: 'Dentro de una nota', x: 'Sumale audio, foto, dibujo o una lista (el tilde), y elegí el color. Arriba: <b>fijar</b>, <b>archivar</b> y <b>papelera</b> (se vacía sola a los 30 días).' },
-  { v: 1, tab: 'cal', sel: '.cal', t: 'Calendario', x: 'Los puntitos son eventos (de su color) y el círculo vacío, tareas que vencen. Tocá un día para ver lo que tiene abajo. Con las flechas cambiás de mes.' },
-  { v: 1, tab: 'cal', sel: '[data-a=newEv]', t: 'Eventos completos', x: 'Desde acá (o tocando un evento) elegís horario o todo el día, repetición (diaria, semanal con días, mensual, anual, hasta cuándo), color y si en <b>Lifebgood</b> es misión Principal, Secundaria o Solo aviso. En uno que se repite podés borrar un solo día.' },
+  { v: 4, tab: 'cal', sel: '.cvtabs', t: 'Calendario: elegí cómo verlo', x: '<b>Hoy y mañana</b>, <b>Día</b>, <b>Semana</b>, <b>Mes</b> o <b>Año</b>. Los eventos se ven escritos adentro, con su color. Pasás de período con las flechas o deslizando el dedo; <b>Hoy</b> te trae de vuelta.' },
+  { v: 4, tab: 'cal', sel: '#gbody, .mgrid', t: 'Tocá para agendar', x: 'En las vistas por horas, tocá un horario libre y se abre un evento a esa hora (la línea roja es ahora). En Mes, tocá un día para verlo en detalle; en Año, tocá un día o el nombre del mes.' },
+  { v: 1, tab: 'cal', sel: '[data-a=newEv]', t: 'Eventos completos', x: 'Con el <b>+</b> (o tocando un evento) elegís horario o todo el día, repetición (diaria, semanal con días, mensual, anual, hasta cuándo), color y si en <b>Lifebgood</b> es misión Principal, Secundaria o Solo aviso. En uno que se repite podés borrar un solo día.' },
   { v: 1, tab: 'tareas', sel: '.task .tick', wait: 'tick', t: 'Completá una tarea', x: 'Tocá el círculo para marcarla como hecha. Si te equivocaste, tocá <b>Deshacer</b>. Las tareas se ordenan en atrasadas, hoy, próximas y sin fecha.' },
   { v: 1, tab: 'diario', sel: '.dtoday', t: 'Tu diario', x: 'Una página por día, con el nombre del día como título. Escribís y se guarda solo. Arriba ves cuántos días llevás y tu racha.' },
   { v: 1, tab: 'diario', sel: '[data-a=dimp]', t: 'Traé tu diario viejo', x: 'Pegá el texto o elegí los archivos de tu otra app (.txt, .md, .json o .csv). Detecta las fechas, te muestra qué días encontró antes de importar y no duplica si importás dos veces.' },

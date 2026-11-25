@@ -1,6 +1,6 @@
 // Myndvs sin señal: la app abre al instante desde el celu y se actualiza por detrás.
-const V = 'myndvs-4';
-const SHELL = ['./', 'index.html', 'css/app.css', 'js/parse.js', 'js/lock.js', 'js/app.js', 'js/diario.js', 'js/tour.js', 'icon.svg', 'icon-192.png', 'manifest.webmanifest'];
+const V = 'myndvs-5';
+const SHELL = ['./', 'index.html', 'css/app.css', 'js/parse.js', 'js/lock.js', 'js/app.js', 'js/calendario.js', 'js/diario.js', 'js/tour.js', 'icon.svg', 'icon-192.png', 'manifest.webmanifest'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(V).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== V).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', e => {

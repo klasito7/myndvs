@@ -12,7 +12,7 @@ Un solo lugar para no olvidar nada: notas, audios, imágenes, dibujos, calendari
 - **Cámara**: guarda fotos o imágenes (se achican solas para no ocupar de más).
 - **Lápiz**: abre una hoja para dibujar (6 colores, 3 grosores, goma, deshacer). El dibujo se recorta solo. Tocándolo dentro de la nota, se sigue editando.
 - **Notas** estilo Keep: colores, fijar, archivar, papelera (30 días), listas con `[ ]` que se tildan desde la tarjeta, `#etiquetas` para filtrar, filtros de audios e imágenes.
-- **Calendario propio**: mes compacto con puntitos por día, eventos de todo el día o con horario, que se repiten (diario, semanal con días elegidos, mensual, anual, con fecha de fin) y borrar una sola fecha de una repetición.
+- **Calendario propio** con 5 vistas: **Hoy y mañana**, **Día**, **Semana** (grilla por horas, con la línea de ahora; tocás un horario libre para agendar), **Mes** (los eventos escritos en cada día, con su color) y **Año** (12 meses con los días ocupados marcados). Se pasa de período con las flechas o deslizando; recuerda la última vista. Eventos de todo el día o con horario, que se repiten (diario, semanal con días elegidos, mensual, anual, con fecha de fin) y borrar una sola fecha de una repetición.
 - **Tareas**: atrasadas, hoy, próximas, sin fecha y hechas, con deshacer.
 - **Hoy**: agenda del día, tareas, notas fijadas y últimos pensamientos, y tu nivel de Lifebgood.
 - **Buscador** que busca en todo.
@@ -73,6 +73,7 @@ No hay servidor propio. Tus datos viajan directo entre tu navegador, Google (cal
 - `css/app.css`: estilos.
 - `js/parse.js`: entiende las frases de la carga rápida.
 - `js/app.js`: base de datos, vistas, grabación, dibujo y sincronización.
+- `js/calendario.js`: las vistas del calendario.
 - `js/diario.js`: el diario y su importador.
 - `js/tour.js`: el tutorial interactivo (pasos en `STEPS`).
 - `sw.js`: modo sin señal.
