@@ -67,6 +67,7 @@ const DB = {
 };
 
 /* ---------- ajustes (chicos: localStorage) ---------- */
+const APP_V = '1.4 (25/11)';
 const CFG_KEY = 'myndvs-cfg';
 let cfg = { gcid: '', gsync: '', glast: 0, gerr: '', ghtok: '', gist: '', mgist: '', login: '', clast: 0, cerr: '', up: [], mdel: [] };
 try { cfg = Object.assign(cfg, JSON.parse(localStorage.getItem(CFG_KEY) || '{}')); } catch (e) { /* sin almacenamiento */ }
@@ -628,11 +629,11 @@ async function getToken(inter) {
     c.requestAccessToken({ prompt: cfg.gforce ? 'consent' : '' }); cfg.gforce = false;
   });
 }
-async function gapi(url, opt, inter) {
+async function gapi(url, opt, inter, again) {
   const tok = await getToken(inter);
   if (!tok) throw new Error('notoken');
   const r = await fetch(url, Object.assign({}, opt, { headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' } }));
-  if (r.status === 401) { gTok = null; try { sessionStorage.removeItem('myndvs-gtok'); } catch (e) { /* nada */ } throw new Error('401'); }
+  if (r.status === 401) { gTok = null; try { sessionStorage.removeItem('myndvs-gtok'); } catch (e) { /* nada */ } if (inter && !again) return gapi(url, opt, inter, true); throw new Error('401'); }
   if (!r.ok) { const e = new Error('g' + r.status); e.status = r.status; e.api = url.includes('tasks.googleapis') ? 'tasks' : 'calendar'; try { e.why = JSON.stringify(await r.json()); } catch (x) { /* nada */ } throw e; }
   return r.status === 204 ? null : r.json();
 }
@@ -646,12 +647,14 @@ function gErr(e) {
     : m === '401' ? 'Se venció el permiso de Google: tocá Sincronizar'
     : m === 'g403' ? g403(e)
     : m === 'gis' || m === 'Failed to fetch' ? 'Sin conexión con Google'
-    : 'Error de Google (' + m + ')';
+    : (cfg.gwhy = ((e && e.api) || '') + ' ' + String((e && e.why) || '').slice(0, 400), 'Error de Google (' + m + ')');
 }
 // un 403 de Google puede ser la API apagada en el proyecto o un permiso que no se marcó al conectar
 const API_N = { calendar: 'Google Calendar API', tasks: 'Google Tasks API' };
 function g403(e) {
-  const w = (e && e.why) || '', api = API_N[e && e.api] || 'la API';
+  const w = (e && e.why) || '';
+  cfg.gwhy = (e.api || '') + ' ' + w.slice(0, 400);
+  const api = API_N[e && e.api] || 'la API';
   if (/SERVICE_DISABLED|accessNotConfigured|has not been used|is disabled/i.test(w)) { cfg.gfix = { k: 'api', api: e.api }; return `La ${api} está apagada en tu proyecto de Google Cloud: tocá "Habilitarla" en Ajustes, esperá 1 minuto y sincronizá.`; }
   if (/SCOPE_INSUFFICIENT|insufficientPermissions|insufficient authentication scopes/i.test(w)) { cfg.gfix = { k: 'scope', api: e.api }; gTok = null; try { sessionStorage.removeItem('myndvs-gtok'); } catch (x) { /* nada */ } return `Al conectar no quedó marcado el permiso de ${e.api === 'tasks' ? 'Tareas' : 'Calendario'}: tocá "Volver a conectar" en Ajustes y marcá todas las casillas.`; }
   if (/rateLimit|quota/i.test(w)) return 'Google pidió esperar un ratito: probá de nuevo en un minuto.';
@@ -791,11 +794,11 @@ async function gsync(inter) {
   for (const part of [async () => { await calPush(inter); await calPull(inter); }, async () => { await taskPush(inter); await taskPull(inter); }]) {
     try { await part(); } catch (e) { errs.push(e); if (String(e && e.message) === 'notoken' || /popup|access_denied|cid/.test(String(e && e.message))) break; }
   }
-  if (!errs.length) { cfg.glast = Date.now(); cfg.gerr = ''; cfg.gfix = null; if (inter) toast('Google al día'); }
+  if (!errs.length) { cfg.glast = Date.now(); cfg.gerr = ''; cfg.gfix = null; cfg.gwhy = ''; if (inter) toast('Google al día'); }
   else {
     const e = errs[0], m = String(e && e.message);
     if (m === 'notoken' && !inter) cfg.gerr = 'notoken';
-    else { cfg.gerr = errs.map(gErr).filter((x, i, a) => a.indexOf(x) === i).join(' · '); if (errs.length < 2 && m.startsWith('g')) cfg.glast = Date.now(); if (inter) toast(cfg.gerr); }
+    else { cfg.gwhy = ''; cfg.gerr = errs.map(gErr).filter((x, i, a) => a.indexOf(x) === i).join(' · '); if (errs.length < 2 && m.startsWith('g')) cfg.glast = Date.now(); if (inter) toast(cfg.gerr); }
   }
   saveCfg(); gBusy = false; bridge(); if ($('#sheet').hidden) render(); else syncDot();
 }
@@ -929,7 +932,7 @@ function openSettings() {
     <div class="edbar"><button class="ib" data-a="close" aria-label="Cerrar">${ICO.back}</button><h2>Ajustes</h2></div>
     <section class="card" id="cardG"><h3>Google Calendar y Tasks</h3>
       ${gCid() ? `<p class="mute">${cfg.gcid ? 'ID de cliente propio guardado.' : 'Encontré el ID de cliente de Lifebgood en este navegador y lo uso.'} ${cfg.glast ? 'Última sincronización ' + ago(cfg.glast) + '.' : 'Todavía no sincronizaste.'}</p>
-        ${cfg.gerr && cfg.gerr !== 'notoken' ? `<p class="warn">⚠ ${esc(cfg.gerr)}</p>` : ''}
+        ${cfg.gerr && cfg.gerr !== 'notoken' ? `<p class="warn">⚠ ${esc(cfg.gerr)}</p>${cfg.gwhy ? `<details class="guide"><summary>Detalle técnico (para pasárselo a Claude)</summary><code>${esc(cfg.gwhy)}</code></details>` : ''}` : ''}
         ${cfg.gfix && cfg.gfix.k === 'api' ? `<div class="btns"><a class="primary" href="https://console.cloud.google.com/apis/library/${cfg.gfix.api === 'tasks' ? 'tasks' : 'calendar-json'}.googleapis.com" target="_blank" rel="noopener">Habilitarla en Google Cloud</a></div><p class="mute small">Se abre con tu Gmail: elegí arriba el proyecto <b>Lifebgood</b> y tocá <b>Habilitar</b>. Después volvé y tocá Sincronizar.</p>` : ''}
         <div class="btns"><button class="primary" data-a="gsync">Sincronizar ahora</button><button class="ghost" data-a="greconnect">Volver a conectar</button>${cfg.gcid ? '<button class="ghost" data-a="gforget">Quitar ID</button>' : ''}</div>
         <p class="mute small">Se sincroniza tu calendario principal y tu lista de tareas principal. Los avisos del celu los sigue dando Google Calendar.</p>`
@@ -973,7 +976,7 @@ function openSettings() {
     <section class="card"><h3>Lifebgood</h3><p class="mute">${lbState() ? 'Conectado: ves tu nivel en Hoy, y lo que agendás acá le llega como misión (por Google). En cada evento o tarea elegís si es Principal, Secundaria o Solo aviso.' : 'Abrí Lifebgood una vez en este navegador y se conectan solas.'}</p></section>
     <section class="card"><h3>Tutorial</h3><p class="mute">Un recorrido interactivo por todo lo que hace la app.</p>
       <div class="btns"><button class="primary" data-a="tour">Ver el tutorial completo</button>${+(localStorage.getItem('myndvs-tour') || 0) < TOUR_V ? '<button class="ghost" data-a="tourNew">Solo las novedades</button>' : ''}</div></section>
-    <p class="mute small center">Myndvs v1 · ${notes().filter(n => !n.del).length} notas · ${diary().length} días de diario · ${events().length} eventos · ${tasks().length} tareas</p>
+    <p class="mute small center">Myndvs v${APP_V} · ${notes().filter(n => !n.del).length} notas · ${diary().length} días de diario · ${events().length} eventos · ${tasks().length} tareas</p>
   </div>`);
 }
 async function exportAll() {
@@ -1118,5 +1121,10 @@ document.addEventListener('click', async e => {
   if (ghTok()) cloudSync(false);
   if (location.hash === '#audio') newNoteWith('rec'); else if (location.hash === '#nota') $('#capIn').focus();
   if (location.hash) history.replaceState(null, '', location.pathname);
-  if ('serviceWorker' in navigator && ORIGIN_OK) navigator.serviceWorker.register('sw.js').catch(() => { /* sin modo offline */ });
+  if ('serviceWorker' in navigator && ORIGIN_OK) {
+    // cuando hay versión nueva, se recarga sola una vez (así no hace falta abrirla dos veces)
+    const had = !!navigator.serviceWorker.controller; let done = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => { if (had && !done && !$('.lockov') && $('#sheet').hidden && !recState) { done = true; location.reload(); } });
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(r => r.update()).catch(() => { /* sin modo offline */ });
+  }
 })();
