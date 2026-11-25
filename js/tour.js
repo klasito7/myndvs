@@ -3,7 +3,7 @@
    se suman sus pasos con un v nuevo y se sube TOUR_V: la próxima vez que se abra, ofrece "Novedades"
    con solo esos pasos. El tutorial completo siempre muestra todos. */
 'use strict';
-const TOUR_V = 2;
+const TOUR_V = 3;
 const TOUR_KEY = 'myndvs-tour';
 const firstNote = () => notes().filter(n => !n.del && !n.arch).sort((a, b) => (b.pin - a.pin) || ((b.u || b.c) - (a.u || a.c)))[0];
 const STEPS = [
@@ -29,6 +29,7 @@ const STEPS = [
   { v: 1, sheet: () => openSettings(), sel: '#sheet .card', t: 'Ajustes', x: 'Calendario y tareas se sincronizan con Google; notas, audios y diario, con tu GitHub en Gists privados. Si ya usás Lifebgood en este navegador, se conecta solo. También podés exportar una copia con todo.' },
   { v: 2, sheet: () => openSettings(), sel: '#cardG', t: 'Conectá Google', x: 'Si Lifebgood está en este navegador, el ID de cliente se toma solo. Si no, tocá <b>¿Dónde lo consigo?</b>: te lleva directo a Google Cloud → Credenciales para copiar el <b>ID de cliente</b> (el mismo de Lifebgood) y pegarlo acá.' },
   { v: 2, sheet: () => openSettings(), sel: '#cardC', t: 'Conectá la nube', x: 'Para que tus notas y tu diario estén en el celu y en la compu hace falta un <b>token de GitHub</b> con permiso <b>gist</b> (sirve el de FUNVS). La guía tiene un link que lo crea con todo ya marcado.' },
+  { v: 3, sheet: () => openSettings(), sel: '#cardL', t: 'Protegé tu Myndvs', x: 'Con una <b>contraseña</b>, todo lo que guardás queda cifrado: en el celu, en la nube y en las copias. Se pide una vez por día (dura hasta la medianoche). Si te la olvidás no se puede recuperar, así que anotala en un lugar seguro.' },
   { v: 1, t: 'Instalala en el celu', x: 'En Chrome: menú <b>⋮</b> → <b>Agregar a la pantalla principal</b> (o <b>Instalar app</b>). Queda como una app más, abre al instante y funciona sin señal.' },
   { v: 1, end: true, t: '¡Listo!', x: 'Ya sabés usar todo. Podés volver a ver este tutorial cuando quieras desde <b>Ajustes → Tutorial</b>. Cuando sume cosas nuevas, te aviso y te muestro solo las novedades.' }
 ];

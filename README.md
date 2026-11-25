@@ -51,6 +51,20 @@ Si Lifebgood está en el mismo navegador, el ID de cliente se toma solo. Si no, 
 
 El permiso de Google dura una hora; después, al tocar el puntito se renueva.
 
+Si Google rechaza algo, Ajustes dice cuál API fue y por qué:
+- **"La Google Tasks/Calendar API está apagada"** → botón **Habilitarla en Google Cloud** (proyecto Lifebgood → Habilitar), esperar un minuto y sincronizar.
+- **"No quedó marcado el permiso"** → **Volver a conectar** y marcar todas las casillas en la ventana de Google.
+Calendario y tareas se sincronizan por separado: si falla uno, el otro sigue andando.
+
+## Contraseña y seguridad
+- **Contraseña opcional** (Ajustes → Contraseña): cifra todo lo guardado con AES-GCM de 256 bits. La clave sale de tu contraseña con PBKDF2-SHA256 (600.000 vueltas); la contraseña no se guarda en ningún lado. Se pide una vez por día: la clave queda en el aparato hasta la medianoche (no se puede exportar) y después se borra. Tras 5 intentos fallidos hay que esperar cada vez más.
+- Con contraseña también van cifrados la nube (los Gists solo tienen datos ilegibles) y las copias de seguridad. Al activarla, los Gists viejos sin cifrar se borran y se vuelven a crear.
+- En otro aparato, la nube pide la misma contraseña. Si la quitás, quitala en todos.
+- Si te la olvidás, lo cifrado no se puede recuperar.
+- Lo que sincronizás con Google Calendar y Tasks queda en tu cuenta de Google como siempre (Google tiene que poder leerlo para avisarte).
+- La app tiene una política de seguridad de contenido (CSP) que solo deja cargar código propio y de Google, y todo lo que entra de la nube o de un archivo se limpia antes de mostrarse.
+- Ojo: Myndvs comparte sitio (`klasito7.github.io`) con tus otras apps. Mientras está desbloqueada, cualquier página de ese sitio podría leerla; por eso conviene que esas apps no carguen código de terceros que no conozcas.
+
 ## Privacidad
 No hay servidor propio. Tus datos viajan directo entre tu navegador, Google (calendario y tareas) y tu GitHub (notas, en Gists privados). Nada más.
 

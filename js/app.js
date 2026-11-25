@@ -45,8 +45,8 @@ const DB = {
   db: null,
   open() {
     return new Promise((res, rej) => {
-      const r = indexedDB.open('myndvs', 1);
-      r.onupgradeneeded = () => { const d = r.result; d.createObjectStore('items', { keyPath: 'id' }); d.createObjectStore('blobs'); };
+      const r = indexedDB.open('myndvs', 2);
+      r.onupgradeneeded = () => { const d = r.result, have = d.objectStoreNames; if (!have.contains('items')) d.createObjectStore('items', { keyPath: 'id' }); if (!have.contains('blobs')) d.createObjectStore('blobs'); if (!have.contains('kv')) d.createObjectStore('kv'); };
       r.onsuccess = () => { this.db = r.result; res(); };
       r.onerror = () => rej(r.error);
     });
@@ -58,9 +58,10 @@ const DB = {
       t.onerror = () => rej(t.error); t.onabort = () => rej(t.error);
     });
   },
-  all: s => DB.run(s, 'readonly', o => o.getAll()),
-  get: (s, k) => DB.run(s, 'readonly', o => o.get(k)),
-  put: (s, v, k) => DB.run(s, 'readwrite', o => k === undefined ? o.put(v) : o.put(v, k)),
+  // con contraseña, items y archivos se guardan cifrados (ver lock.js)
+  all: async s => { const L = await DB.run(s, 'readonly', o => o.getAll()); return Promise.all(L.map(r => openVal(s, r))); },
+  get: async (s, k) => openVal(s, await DB.run(s, 'readonly', o => o.get(k))),
+  put: async (s, v, k) => { const w = await sealVal(s, v); return DB.run(s, 'readwrite', o => k === undefined ? o.put(w) : o.put(w, k)); },
   del: (s, k) => DB.run(s, 'readwrite', o => o.delete(k)),
   keys: s => DB.run(s, 'readonly', o => o.getAllKeys())
 };
@@ -81,6 +82,24 @@ const lvl = xp => { let L = 1; while (xp >= 50 * L * (L + 1)) L++; return { L, l
 
 /* ---------- estado en memoria ---------- */
 const ITEMS = new Map();
+// todo lo que entra de afuera pasa por acá: así un dato raro nunca se convierte en código en la pantalla
+const RX = { id: /^[\w-]{1,64}$/, date: /^\d{4}-\d{2}-\d{2}$/, hm: /^\d{2}:\d{2}$/ };
+function clean(it) {
+  if (!it || typeof it !== 'object' || !RX.id.test(String(it.id)) || !['note', 'ev', 'task', 'diary'].includes(it.k)) return null;
+  const o = Object.assign({}, it);
+  for (const k of ['text', 'title', 'notes']) if (o[k] != null) o[k] = String(o[k]);
+  if (!NCOL.includes(o.color || '')) o.color = '';
+  for (const k of ['date', 'due', 'until']) if (o[k] && !RX.date.test(o[k])) o[k] = k === 'date' ? today() : null;
+  for (const k of ['start', 'end']) if (o[k] && !RX.hm.test(o[k])) o[k] = null;
+  if (!['', 'd', 'w', 'm', 'y'].includes(o.rep || '')) o.rep = '';
+  if (!['auto', 'p', 's', 'i'].includes(o.lb || 'auto')) o.lb = 'auto';
+  o.days = Array.isArray(o.days) ? o.days.filter(d => Number.isInteger(d) && d >= 0 && d < 7) : [];
+  o.ex = Array.isArray(o.ex) ? o.ex.filter(d => RX.date.test(d)) : [];
+  o.media = Array.isArray(o.media) ? o.media.filter(m => m && RX.id.test(String(m.id)) && ['audio', 'img', 'draw'].includes(m.t)).map(m => ({ id: m.id, t: m.t, dur: +m.dur || 0 })) : [];
+  for (const k of ['c', 'u', 'del', 'doneAt']) if (o[k] != null) o[k] = +o[k] || 0;
+  if (o.k === 'diary' && !RX.date.test(o.date)) return null;
+  return o;
+}
 const isNote = x => x.k === 'note' && !x.gone, isEv = x => x.k === 'ev' && !x.del, isTask = x => x.k === 'task' && !x.del;
 const notes = () => [...ITEMS.values()].filter(isNote);
 const events = () => [...ITEMS.values()].filter(isEv);
@@ -606,7 +625,7 @@ async function getToken(inter) {
       },
       error_callback: e => rej(new Error((e && e.type) || 'popup'))
     });
-    c.requestAccessToken({ prompt: '' });
+    c.requestAccessToken({ prompt: cfg.gforce ? 'consent' : '' }); cfg.gforce = false;
   });
 }
 async function gapi(url, opt, inter) {
@@ -614,7 +633,7 @@ async function gapi(url, opt, inter) {
   if (!tok) throw new Error('notoken');
   const r = await fetch(url, Object.assign({}, opt, { headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' } }));
   if (r.status === 401) { gTok = null; try { sessionStorage.removeItem('myndvs-gtok'); } catch (e) { /* nada */ } throw new Error('401'); }
-  if (!r.ok) { const e = new Error('g' + r.status); e.status = r.status; try { e.why = JSON.stringify(await r.json()); } catch (x) { /* nada */ } throw e; }
+  if (!r.ok) { const e = new Error('g' + r.status); e.status = r.status; e.api = url.includes('tasks.googleapis') ? 'tasks' : 'calendar'; try { e.why = JSON.stringify(await r.json()); } catch (x) { /* nada */ } throw e; }
   return r.status === 204 ? null : r.json();
 }
 const CAL = 'https://www.googleapis.com/calendar/v3', TSK = 'https://tasks.googleapis.com/tasks/v1';
@@ -625,9 +644,20 @@ function gErr(e) {
     : /popup/.test(m) ? 'Se cerró o se bloqueó la ventana de Google'
     : m === 'access_denied' ? 'No le diste permiso a Google'
     : m === '401' ? 'Se venció el permiso de Google: tocá Sincronizar'
-    : m === 'g403' ? 'Google no deja: ¿habilitaste Calendar y Tasks API en tu proyecto?'
+    : m === 'g403' ? g403(e)
     : m === 'gis' || m === 'Failed to fetch' ? 'Sin conexión con Google'
     : 'Error de Google (' + m + ')';
+}
+// un 403 de Google puede ser la API apagada en el proyecto o un permiso que no se marcó al conectar
+const API_N = { calendar: 'Google Calendar API', tasks: 'Google Tasks API' };
+function g403(e) {
+  const w = (e && e.why) || '', api = API_N[e && e.api] || 'la API';
+  if (/SERVICE_DISABLED|accessNotConfigured|has not been used|is disabled/i.test(w)) { cfg.gfix = { k: 'api', api: e.api }; return `La ${api} está apagada en tu proyecto de Google Cloud: tocá "Habilitarla" en Ajustes, esperá 1 minuto y sincronizá.`; }
+  if (/SCOPE_INSUFFICIENT|insufficientPermissions|insufficient authentication scopes/i.test(w)) { cfg.gfix = { k: 'scope', api: e.api }; gTok = null; try { sessionStorage.removeItem('myndvs-gtok'); } catch (x) { /* nada */ } return `Al conectar no quedó marcado el permiso de ${e.api === 'tasks' ? 'Tareas' : 'Calendario'}: tocá "Volver a conectar" en Ajustes y marcá todas las casillas.`; }
+  if (/rateLimit|quota/i.test(w)) return 'Google pidió esperar un ratito: probá de nuevo en un minuto.';
+  cfg.gfix = { k: 'other', api: e && e.api };
+  let msg = ''; try { msg = JSON.parse(w).error.message; } catch (x) { /* nada */ }
+  return `Google no dejó usar ${api}${msg ? ': ' + msg.slice(0, 140) : ''}`;
 }
 const dayCompact = k => k.replace(/-/g, '');
 function toGEvent(e) {
@@ -649,7 +679,7 @@ function fromGEvent(g, base) {
   const e = base || { id: uid(), k: 'ev', c: Date.now() };
   e.gid = g.id; e.title = g.summary || '(Sin título)'; e.notes = g.description || '';
   const pv = (g.extendedProperties && g.extendedProperties.private) || {};
-  if (pv.lbk) e.lb = pv.lbk; if (pv.color !== undefined) e.color = pv.color || e.color || '';
+  if (['auto', 'p', 's', 'i'].includes(pv.lbk)) e.lb = pv.lbk; if (pv.color !== undefined) e.color = NCOL.includes(pv.color) ? pv.color : '';
   if (g.start.date) { e.date = g.start.date; e.start = null; e.end = null; }
   else { const a = localDT(g.start.dateTime), b = localDT(g.end.dateTime); e.date = a.date; e.start = a.time; e.end = b.date === a.date ? b.time : '23:59'; }
   e.rep = ''; e.days = []; e.until = ''; e.ex = [];
@@ -756,12 +786,16 @@ function gSoon() { if (!gCid()) return; clearTimeout(gT); gT = setTimeout(() => 
 async function gsync(inter) {
   if (!gCid()) { if (inter) openSettings(); return; }
   if (gBusy) return; gBusy = true; syncDot();
-  try {
-    await calPush(inter); await calPull(inter); await taskPush(inter); await taskPull(inter);
-    cfg.glast = Date.now(); cfg.gerr = ''; if (inter) toast('Google al día');
-  } catch (e) {
-    const m = String(e && e.message);
-    if (m === 'notoken' && !inter) cfg.gerr = 'notoken'; else { cfg.gerr = gErr(e); if (inter) toast(cfg.gerr); }
+  // calendario y tareas por separado: si una falla, la otra igual se sincroniza
+  const errs = [];
+  for (const part of [async () => { await calPush(inter); await calPull(inter); }, async () => { await taskPush(inter); await taskPull(inter); }]) {
+    try { await part(); } catch (e) { errs.push(e); if (String(e && e.message) === 'notoken' || /popup|access_denied|cid/.test(String(e && e.message))) break; }
+  }
+  if (!errs.length) { cfg.glast = Date.now(); cfg.gerr = ''; cfg.gfix = null; if (inter) toast('Google al día'); }
+  else {
+    const e = errs[0], m = String(e && e.message);
+    if (m === 'notoken' && !inter) cfg.gerr = 'notoken';
+    else { cfg.gerr = errs.map(gErr).filter((x, i, a) => a.indexOf(x) === i).join(' · '); if (errs.length < 2 && m.startsWith('g')) cfg.glast = Date.now(); if (inter) toast(cfg.gerr); }
   }
   saveCfg(); gBusy = false; bridge(); if ($('#sheet').hidden) render(); else syncDot();
 }
@@ -787,16 +821,33 @@ async function findGists() {
 }
 const cleanNote = n => { const o = Object.assign({}, n); for (const k of Object.keys(o)) if (k[0] === '_') delete o[k]; return o; };
 let cBusy = false, cT = null;
+async function readRemote() {
+  await findGists();
+  let g;
+  try { g = await gh('/gists/' + cfg.gist); }
+  catch (e) { if (e.status !== 404) throw e; cfg.gist = ''; cfg.mgist = ''; cfg.up = []; await findGists(); g = await gh('/gists/' + cfg.gist); } // la borró otro aparato
+  const f = g.files[GFILE];
+  return f ? JSON.parse(f.truncated ? await (await fetch(f.raw_url)).text() : f.content) : { notes: [] };
+}
+async function remoteLock() { const r = await readRemote(); return r.lock || null; }
+// borra los Gists y los vuelve a crear (al poner o sacar la contraseña, así no queda nada viejo en el historial del Gist)
+async function cloudRestart() {
+  for (const id of [cfg.gist, cfg.mgist]) if (id) { try { await gh('/gists/' + id, { method: 'DELETE' }); } catch (e) { /* ya no estaba */ } }
+  cfg.gist = ''; cfg.mgist = ''; cfg.up = []; cfg.mdel = []; saveCfg();
+  await cloudSync(false);
+}
 function cloudSoon() { if (!ghTok()) return; clearTimeout(cT); cT = setTimeout(() => cloudSync(false), 15000); syncDot(); }
 async function cloudSync(inter) {
   if (!ghTok()) { if (inter) openSettings(); return; }
   if (cBusy) return; cBusy = true; syncDot();
   try {
-    await findGists();
-    const g = await gh('/gists/' + cfg.gist), f = g.files[GFILE];
-    const remote = f ? JSON.parse(f.truncated ? await (await fetch(f.raw_url)).text() : f.content) : { notes: [] };
+    const remote = await readRemote();
+    if (remote.lock && !CK) { cfg.rlock = remote.lock; throw Object.assign(new Error('rlock'), { status: 'rlock' }); }
+    if (remote.lock && CK && remote.lock.salt !== cfg.lock.salt) throw Object.assign(new Error('rsalt'), { status: 'rsalt' });
+    if (remote.enc) remote.notes = JSON.parse(await LOCK.decStr(CK, remote.enc));
     let pulled = 0;
-    for (const rn of remote.notes || []) {
+    for (const raw of remote.notes || []) {
+      const rn = clean(raw); if (!rn || (rn.k !== 'note' && rn.k !== 'diary')) continue;
       const ln = ITEMS.get(rn.id);
       if (!ln || (rn.u || 0) > (ln.u || 0)) { ITEMS.set(rn.id, rn); await DB.put('items', rn); pulled++; }
     }
@@ -812,7 +863,8 @@ async function cloudSync(inter) {
     for (const n of notes()) for (const m of n.media || []) {
       if (up.has(m.id) || !have.has(m.id)) continue;
       const b = await DB.get('blobs', m.id); if (!b) continue;
-      await gh('/gists/' + cfg.mgist, { method: 'PATCH', body: JSON.stringify({ files: { ['m-' + m.id]: { content: await blobToData(b) } } }) });
+      const data = await blobToData(b);
+      await gh('/gists/' + cfg.mgist, { method: 'PATCH', body: JSON.stringify({ files: { ['m-' + m.id]: { content: CK ? 'enc1:' + await LOCK.encStr(CK, data) : data } } }) });
       up.add(m.id);
     }
     cfg.up = [...up];
@@ -821,17 +873,25 @@ async function cloudSync(inter) {
       if (have.has(m.id) || !up.has(m.id)) continue;
       try {
         const r = await fetch(`https://gist.githubusercontent.com/${cfg.login}/${cfg.mgist}/raw/m-${m.id}?t=${Date.now()}`);
-        if (r.ok) { await DB.put('blobs', await dataToBlob(await r.text()), m.id); have.add(m.id); }
+        if (r.ok) {
+          let t = await r.text();
+          if (t.startsWith('enc1:')) { if (!CK) continue; t = await LOCK.decStr(CK, t.slice(5)); }
+          if (!/^data:(image|audio)\/[\w.+-]+(;[\w=.+-]+)*;base64,/.test(t)) continue;
+          await DB.put('blobs', await dataToBlob(t), m.id); have.add(m.id);
+        }
       } catch (e) { /* la próxima */ }
     }
     // subir el índice si cambió algo
     const mine = [...ITEMS.values()].filter(x => x.k === 'note' || x.k === 'diary').map(cleanNote);
     const rmap = new Map((remote.notes || []).map(x => [x.id, x.u || 0]));
     const differs = mine.length !== rmap.size || mine.some(x => rmap.get(x.id) !== (x.u || 0)) || (remote.up || []).length !== up.size;
-    if (differs) await gh('/gists/' + cfg.gist, { method: 'PATCH', body: JSON.stringify({ files: { [GFILE]: { content: JSON.stringify({ v: 1, u: Date.now(), up: [...up], notes: mine }) } } }) });
+    if (differs || (CK && !remote.lock)) {
+      const body = CK ? { v: 2, u: Date.now(), up: [...up], lock: cfg.lock, enc: await LOCK.encStr(CK, JSON.stringify(mine)) } : { v: 1, u: Date.now(), up: [...up], notes: mine };
+      await gh('/gists/' + cfg.gist, { method: 'PATCH', body: JSON.stringify({ files: { [GFILE]: { content: JSON.stringify(body) } } }) });
+    }
     cfg.clast = Date.now(); cfg.cerr = '';
     if (inter) toast(pulled ? `Nube al día (${pulled} nota${pulled === 1 ? '' : 's'} nueva${pulled === 1 ? '' : 's'})` : 'Nube al día');
-  } catch (e) { cfg.cerr = e.status === 401 ? 'El token de GitHub no sirve o se venció' : e.status === 403 || e.status === 404 ? 'El token no tiene permiso de "gist"' : 'Sin conexión con GitHub'; if (inter) toast(cfg.cerr); }
+  } catch (e) { cfg.cerr = e.status === 'rlock' ? 'Tu nube está protegida con contraseña: activá la misma en Ajustes → Contraseña' : e.status === 'rsalt' ? 'En otro aparato la nube tiene otra contraseña' : e.status === 401 ? 'El token de GitHub no sirve o se venció' : e.status === 403 || e.status === 404 ? 'El token no tiene permiso de "gist"' : 'Sin conexión con GitHub'; if (inter) toast(cfg.cerr); }
   saveCfg(); cBusy = false; if ($('#sheet').hidden) render(); else syncDot();
 }
 async function purgeTrash(all) {
@@ -870,7 +930,8 @@ function openSettings() {
     <section class="card" id="cardG"><h3>Google Calendar y Tasks</h3>
       ${gCid() ? `<p class="mute">${cfg.gcid ? 'ID de cliente propio guardado.' : 'Encontré el ID de cliente de Lifebgood en este navegador y lo uso.'} ${cfg.glast ? 'Última sincronización ' + ago(cfg.glast) + '.' : 'Todavía no sincronizaste.'}</p>
         ${cfg.gerr && cfg.gerr !== 'notoken' ? `<p class="warn">⚠ ${esc(cfg.gerr)}</p>` : ''}
-        <div class="btns"><button class="primary" data-a="gsync">Sincronizar ahora</button>${cfg.gcid ? '<button class="ghost" data-a="gforget">Quitar ID</button>' : ''}</div>
+        ${cfg.gfix && cfg.gfix.k === 'api' ? `<div class="btns"><a class="primary" href="https://console.cloud.google.com/apis/library/${cfg.gfix.api === 'tasks' ? 'tasks' : 'calendar-json'}.googleapis.com" target="_blank" rel="noopener">Habilitarla en Google Cloud</a></div><p class="mute small">Se abre con tu Gmail: elegí arriba el proyecto <b>Lifebgood</b> y tocá <b>Habilitar</b>. Después volvé y tocá Sincronizar.</p>` : ''}
+        <div class="btns"><button class="primary" data-a="gsync">Sincronizar ahora</button><button class="ghost" data-a="greconnect">Volver a conectar</button>${cfg.gcid ? '<button class="ghost" data-a="gforget">Quitar ID</button>' : ''}</div>
         <p class="mute small">Se sincroniza tu calendario principal y tu lista de tareas principal. Los avisos del celu los sigue dando Google Calendar.</p>`
       : `<p class="mute">Pegá el <b>ID de cliente</b> de tu proyecto de Google Cloud. Es el mismo de Lifebgood: sirve tal cual porque las dos apps están en el mismo sitio.</p>
         <div class="row"><input id="gcidIn" placeholder="…apps.googleusercontent.com" autocomplete="off"><button class="primary" data-a="gcidSave">Guardar</button></div>`}
@@ -898,7 +959,16 @@ function openSettings() {
         <li>Copiá el token (empieza con <code>ghp_</code>) y pegalo acá arriba → <b>Guardar</b>. Guardalo también en un lugar seguro para tus otros aparatos.</li>
       </ol><p class="mute small">El token solo puede tocar tus Gists: no tus repos ni tu cuenta. Queda guardado en este navegador, nada más.</p>${ghTok() && !cfg.ghtok ? '<p class="mute small">¿Querés usar otro token? <button class="link" data-a="ghOwn">Pegar uno propio</button></p>' : ''}</details>
     </section>
-    <section class="card"><h3>Copia de seguridad</h3><p class="mute">Un archivo con todo (incluye audios, imágenes y dibujos).</p>
+    <section class="card" id="cardL"><h3>Contraseña</h3>
+      ${cfg.lock ? `<p class="mute">Activada: todo lo que guardás (en este aparato, en la nube y en las copias) está cifrado. Se pide una vez por día.</p>
+        <div class="btns"><button class="primary" data-a="lockNow">Bloquear ahora</button><button class="ghost" data-a="lockOff">Quitar contraseña</button></div>`
+      : `<p class="mute">Cifra notas, diario, audios, imágenes y dibujos con una contraseña que se pide una vez por día. Ni GitHub ni nadie puede leer tu nube sin ella.</p>
+        ${cfg.rlock ? '<p class="warn small">Tu nube ya está protegida desde otro aparato: poné la misma contraseña.</p>' : ''}
+        <div class="row"><input type="password" id="lkA" placeholder="Contraseña (mínimo 8)" autocomplete="new-password"></div>
+        <div class="row"><input type="password" id="lkB" placeholder="Repetila" autocomplete="new-password"><button class="primary" data-a="lockOn">Activar</button></div>
+        <p class="warn small">Si te la olvidás no hay forma de recuperar lo cifrado. Anotala en un lugar seguro.</p>`}
+    </section>
+    <section class="card"><h3>Copia de seguridad</h3><p class="mute">Un archivo con todo (incluye audios, imágenes y dibujos)${cfg.lock ? ', cifrado con tu contraseña' : ''}.</p>
       <div class="btns"><button class="ghost" data-a="export">Exportar</button><button class="ghost" data-a="import">Importar</button></div></section>
     <section class="card"><h3>Lifebgood</h3><p class="mute">${lbState() ? 'Conectado: ves tu nivel en Hoy, y lo que agendás acá le llega como misión (por Google). En cada evento o tarea elegís si es Principal, Secundaria o Solo aviso.' : 'Abrí Lifebgood una vez en este navegador y se conectan solas.'}</p></section>
     <section class="card"><h3>Tutorial</h3><p class="mute">Un recorrido interactivo por todo lo que hace la app.</p>
@@ -910,15 +980,20 @@ async function exportAll() {
   toast('Armando la copia…');
   const blobs = {};
   for (const k of await DB.keys('blobs')) blobs[k] = await blobToData(await DB.get('blobs', k));
-  const data = JSON.stringify({ app: 'Myndvs', v: 1, at: Date.now(), items: [...ITEMS.values()], blobs });
+  const inner = JSON.stringify({ items: [...ITEMS.values()], blobs });
+  const data = JSON.stringify(CK ? { app: 'Myndvs', v: 2, at: Date.now(), lock: cfg.lock, enc: await LOCK.encStr(CK, inner) } : Object.assign({ app: 'Myndvs', v: 1, at: Date.now() }, JSON.parse(inner)));
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], { type: 'application/json' })); a.download = `myndvs-${today()}.json`; a.click();
 }
 async function importAll(file) {
   try {
-    const d = JSON.parse(await file.text()); if (d.app !== 'Myndvs' && d.app !== 'Mente') throw new Error('x');
+    let d = JSON.parse(await file.text()); if (d.app !== 'Myndvs' && d.app !== 'Mente') throw new Error('x');
+    if (d.enc) {
+      if (!CK || !cfg.lock || d.lock.salt !== cfg.lock.salt) { toast('Esa copia está cifrada con otra contraseña'); return; }
+      d = JSON.parse(await LOCK.decStr(CK, d.enc));
+    }
     let n = 0;
-    for (const it of d.items || []) { const l = ITEMS.get(it.id); if (!l || (it.u || 0) > (l.u || 0)) { ITEMS.set(it.id, it); await DB.put('items', it); n++; } }
-    for (const [k, v] of Object.entries(d.blobs || {})) if (!(await DB.get('blobs', k))) await DB.put('blobs', await dataToBlob(v), k);
+    for (const raw of d.items || []) { const it = clean(raw); if (!it) continue; const l = ITEMS.get(it.id); if (!l || (it.u || 0) > (l.u || 0)) { ITEMS.set(it.id, it); await DB.put('items', it); n++; } }
+    for (const [k, v] of Object.entries(d.blobs || {})) if (RX.id.test(k) && /^data:(image|audio)\//.test(v) && !(await DB.get('blobs', k))) await DB.put('blobs', await dataToBlob(v), k);
     toast(`Importado: ${n} cosas`); render();
   } catch (e) { toast('Ese archivo no es una copia de Myndvs'); }
 }
@@ -972,7 +1047,8 @@ document.addEventListener('click', async e => {
     case 'tick': toggleTask(id); break;
     case 'openTask': { const t = ITEMS.get(id); if (t) taskEditor(t); break; }
     case 'toggleDone': showDone = !showDone; render(); break;
-    case 'gsync': gsync(true); break;
+    case 'gsync': await gsync(true); if (!$('#sheet').hidden) openSettings(); break;
+    case 'greconnect': gTok = null; try { sessionStorage.removeItem('myndvs-gtok'); } catch (x) { /* nada */ } cfg.gforce = true; saveCfg(); await gsync(true); openSettings(); break;
     case 'csync': cloudSync(true); break;
     case 'gcidSave': { const v = ($('#gcidIn').value || '').trim().replace(/^https?:\/\//, ''); if (!/\.apps\.googleusercontent\.com$/.test(v)) { toast('Eso no parece un ID de cliente'); break; } cfg.gcid = v; saveCfg(); openSettings(); gsync(true); break; }
     case 'gforget': cfg.gcid = ''; cfg.gsync = ''; cfg.glast = 0; cfg.gerr = ''; gTok = null; try { sessionStorage.removeItem('myndvs-gtok'); } catch (x) { /* nada */ } saveCfg(); openSettings(); toast(lbCid() ? 'Desconectado (Lifebgood tiene su propio ID: se sigue usando)' : 'Google desconectado'); break;
@@ -981,6 +1057,17 @@ document.addEventListener('click', async e => {
     case 'ghOwn': { const d = b.closest('details'); d.insertAdjacentHTML('beforeend', '<div class="row"><input id="ghIn" placeholder="ghp_… o github_pat_…" autocomplete="off"><button class="primary" data-a="ghSave">Guardar</button></div>'); b.parentElement.remove(); $('#ghIn').focus(); break; }
     case 'cforget': cfg.ghtok = ''; saveCfg(); openSettings(); break;
     case 'export': exportAll(); break;
+    case 'lockOn': {
+      const a1 = $('#lkA').value, a2 = $('#lkB').value;
+      if (a1.length < 8) { toast('Tiene que tener al menos 8 caracteres'); break; }
+      if (a1 !== a2) { toast('Las dos no coinciden'); break; }
+      b.disabled = true; b.textContent = 'Cifrando…';
+      const err = await lockEnable(a1);
+      if (err) { toast(err); b.disabled = false; b.textContent = 'Activar'; break; }
+      cfg.rlock = null; saveCfg(); openSettings(); toast('Contraseña activada: todo quedó cifrado'); break;
+    }
+    case 'lockNow': lockNow(); break;
+    case 'lockOff': { if (b.dataset.arm !== '1') { b.dataset.arm = '1'; b.textContent = 'Tocá de nuevo para quitarla'; break; } b.disabled = true; await lockDisable(); openSettings(); toast('Contraseña quitada'); break; }
     case 'import': $('#importIn').value = ''; $('#importIn').click(); break;
   }
 });
@@ -1017,7 +1104,8 @@ document.addEventListener('click', async e => {
 /* ---------- arranque ---------- */
 (async function start() {
   try { await DB.open(); } catch (e) { $('#view').innerHTML = '<p class="empty">Este navegador no deja guardar datos (¿modo incógnito?).</p>'; return; }
-  for (const it of await DB.all('items')) ITEMS.set(it.id, it);
+  await lockAtStart();
+  for (const raw of await DB.all('items')) { const it = clean(raw); if (it) ITEMS.set(it.id, it); }
   if (!ITEMS.size && !localStorage.getItem('myndvs-hello')) {
     const n = { id: 'bienvenida', k: 'note', c: 1764072000000, u: 1764072000000, color: 'violeta', pin: true, arch: false, media: [],
       text: 'Bienvenido a Myndvs 👋\nEscribí abajo y apretá Enter:\n[ ] Un pensamiento → queda como nota\n[ ] "- comprar alimento" → tarea\n[ ] "vie 21 cena con Ulises" → evento\n[ ] El micrófono graba, la cámara guarda fotos y el lápiz abre para dibujar\n#myndvs' };
