@@ -18,6 +18,15 @@ Un solo lugar para no olvidar nada: notas, audios, imágenes, dibujos, calendari
 - **Buscador** que busca en todo.
 - **Sin señal**: todo vive en el celu (IndexedDB) y se sincroniza cuando vuelve la conexión.
 
+## Lo nuevo (v1.6)
+- **Todos tus calendarios de Google** (Principal, Vélez, Automovilismo, Stream / TV, compartidos y feriados), cada uno con su color. Elegís cuáles ver (botón de capas en Calendario) y a cuál va cada evento (en el editor, o con **#nombre** en la barra: `sáb 21 Vélez vs Talleres #velez`). Si cambiás el calendario de un evento, se mueve en Google sin duplicarse. Los de solo lectura se ven pero no se editan.
+- **Feriados de Argentina** incorporados (2026 oficial) y actualizados solos desde argentinadatos.com (datos de argentina.gob.ar). Aviso en Hoy del feriado de hoy o del próximo. Si ya tenés el calendario de feriados de Google prendido, no se duplican.
+- **Tareas con hora** (`- hoy 16:30 llamar al banco`): aparecen en la grilla del calendario y se sincronizan con Google Tasks (la hora viaja en las notas de la tarea).
+- **Arrastrar eventos** en la grilla para cambiarles la hora o el día (con el dedo: mantener apretado), y **estirar** el borde de abajo para cambiar la duración. Pasos de 15 minutos, con deshacer.
+- **Wrapped del mes**: el último día de cada mes (y hasta el 3 del siguiente) aparece en Hoy un resumen estilo historias.
+- **Interfaz más viva**: deslizar entre pestañas, tirar para sincronizar, cerrar hojas deslizando, transiciones y animaciones breves (se apagan con "reducir movimiento"). El botón "atrás" del celu cierra lo que esté abierto.
+- Detalles: notas en dos columnas en el celu, links más cortos, deshacer una nota no la revive la nube, no se pierde el texto si cancelás un audio o dibujo, "Marcar hecha" en el editor de tareas.
+
 ## Tutorial
 La primera vez que abrís la app arranca un **tutorial interactivo** (22 pasos, algunos los hacés vos: anotar, crear una tarea, un evento, completarla). Se vuelve a ver desde **Ajustes → Tutorial**. Cada vez que la app suma algo, el tutorial suma sus pasos y te ofrece ver **solo las novedades**.
 
@@ -74,6 +83,9 @@ No hay servidor propio. Tus datos viajan directo entre tu navegador, Google (cal
 - `js/parse.js`: entiende las frases de la carga rápida.
 - `js/app.js`: base de datos, vistas, grabación, dibujo y sincronización.
 - `js/calendario.js`: las vistas del calendario.
+- `js/feriados.js`: feriados de Argentina.
+- `js/wrapped.js`: el resumen del mes.
+- `js/ui.js`: animaciones y gestos.
 - `js/diario.js`: el diario y su importador.
 - `js/tour.js`: el tutorial interactivo (pasos en `STEPS`).
 - `sw.js`: modo sin señal.

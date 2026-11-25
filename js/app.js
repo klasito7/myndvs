@@ -14,7 +14,7 @@ const cap1 = s => s.charAt(0).toUpperCase() + s.slice(1);
 const fmtLong = k => cap1(new Date(k + 'T12:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' }));
 const fmtShort = k => { const t = today(); if (k === t) return 'Hoy'; if (k === addDays(t, 1)) return 'Mañana'; if (k === addDays(t, -1)) return 'Ayer'; return cap1(new Date(k + 'T12:00').toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' }).replace(/\./g, '')); };
 const ago = ts => { const m = Math.round((Date.now() - ts) / 60000); return m < 1 ? 'recién' : m < 60 ? `hace ${m} min` : m < 1440 ? `hace ${Math.round(m / 60)} h` : m < 10080 ? `hace ${Math.round(m / 1440)} d` : new Date(ts).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }); };
-const plusHour = t => { const h = Math.min(23, +t.slice(0, 2) + 1); return String(h).padStart(2, '0') + t.slice(2); };
+const plusHour = t => { const h = +t.slice(0, 2) + 1; return h > 23 ? '23:59' : String(h).padStart(2, '0') + t.slice(2); };
 const fmtDur = s => Math.floor(s / 60) + ':' + String(Math.round(s % 60)).padStart(2, '0');
 const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Argentina/Buenos_Aires';
 const ORIGIN_OK = /(^|\.)github\.io$/.test(location.hostname) || location.hostname === 'localhost';
@@ -36,6 +36,23 @@ const ICO = {
 };
 const NCOL = ['', 'rojo', 'ambar', 'verde', 'azul', 'violeta'];
 const ECOL = { '': 'var(--acc)', rojo: '#ff7b7b', ambar: '#f4b740', verde: '#5fd39a', azul: '#5aa9ff', violeta: '#b28cff' };
+/* calendarios de Google: cfg.cals = { clave: { id, name, bg, on, rw } } (clave 'primary' para el principal) */
+const HEX = /^#[0-9a-f]{6}$/i;
+const calOf = e => (cfg.cals || {})[e.cal || 'primary'];
+const calBg = k => { const c = (cfg.cals || {})[k || 'primary']; return c && HEX.test(c.bg) ? c.bg : 'var(--acc)'; };
+const FER_COL = '#2dd4bf';
+const evColor = e => e.hol ? FER_COL : e.color ? ECOL[e.color] : calBg(e.cal);
+// texto que se lee sobre el color de fondo (claro u oscuro)
+const evInk = e => { const c = evColor(e); if (!HEX.test(c)) return '#111522'; const n = parseInt(c.slice(1), 16), L = (0.299 * (n >> 16) + 0.587 * (n >> 8 & 255) + 0.114 * (n & 255)) / 255; return L > 0.6 ? '#111522' : '#fff'; };
+const calOn = e => { const c = calOf(e); return !c || c.on !== false; };
+const calName = k => { const c = (cfg.cals || {})[k || 'primary']; return c ? c.name : 'Principal'; };
+const calsRW = () => Object.entries(cfg.cals || {}).filter(([, c]) => c.rw);
+// "#velez" → calendario "Vélez Sarsfield"; "#stream" → "Stream / TV"
+function calByTag(tag) {
+  const t = P.fold(tag); if (t.length < 3) return null;
+  for (const [k, c] of calsRW()) { const n = P.fold(c.name); if (n.replace(/[^a-z0-9]/g, '').startsWith(t) || n.split(/[^a-z0-9]+/).some(w => w.length > 2 && w.startsWith(t))) return k; }
+  return null;
+}
 const LBK = [['auto', 'Automática'], ['p', 'Principal'], ['s', 'Secundaria'], ['i', 'Solo aviso (sin XP)']];
 const REP = [['', 'No se repite'], ['d', 'Todos los días'], ['w', 'Todas las semanas'], ['m', 'Todos los meses'], ['y', 'Todos los años']];
 const WDS = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
@@ -67,7 +84,7 @@ const DB = {
 };
 
 /* ---------- ajustes (chicos: localStorage) ---------- */
-const APP_V = '1.5 (25/11)';
+const APP_V = '1.6 (25/11)';
 const CFG_KEY = 'myndvs-cfg';
 let cfg = { gcid: '', gsync: '', glast: 0, gerr: '', ghtok: '', gist: '', mgist: '', login: '', clast: 0, cerr: '', up: [], mdel: [] };
 try { cfg = Object.assign(cfg, JSON.parse(localStorage.getItem(CFG_KEY) || '{}')); } catch (e) { /* sin almacenamiento */ }
@@ -91,8 +108,9 @@ function clean(it) {
   for (const k of ['text', 'title', 'notes']) if (o[k] != null) o[k] = String(o[k]);
   if (!NCOL.includes(o.color || '')) o.color = '';
   for (const k of ['date', 'due', 'until']) if (o[k] && !RX.date.test(o[k])) o[k] = k === 'date' ? today() : null;
-  for (const k of ['start', 'end']) if (o[k] && !RX.hm.test(o[k])) o[k] = null;
+  for (const k of ['start', 'end', 'time']) if (o[k] && !RX.hm.test(o[k])) o[k] = null;
   if (!['', 'd', 'w', 'm', 'y'].includes(o.rep || '')) o.rep = '';
+  for (const k of ['cal', 'gcal']) if (o[k] != null && !/^[\w.@#+-]{1,200}$/.test(o[k])) o[k] = 'primary';
   if (!['auto', 'p', 's', 'i'].includes(o.lb || 'auto')) o.lb = 'auto';
   o.days = Array.isArray(o.days) ? o.days.filter(d => Number.isInteger(d) && d >= 0 && d < 7) : [];
   o.ex = Array.isArray(o.ex) ? o.ex.filter(d => RX.date.test(d)) : [];
@@ -101,7 +119,7 @@ function clean(it) {
   if (o.k === 'diary' && !RX.date.test(o.date)) return null;
   return o;
 }
-const isNote = x => x.k === 'note' && !x.gone, isEv = x => x.k === 'ev' && !x.del, isTask = x => x.k === 'task' && !x.del;
+const isNote = x => x.k === 'note' && !x.gone, isEv = x => x.k === 'ev' && !x.del && calOn(x), isTask = x => x.k === 'task' && !x.del;
 const notes = () => [...ITEMS.values()].filter(isNote);
 const events = () => [...ITEMS.values()].filter(isEv);
 const tasks = () => [...ITEMS.values()].filter(isTask);
@@ -171,7 +189,7 @@ const MODE_TXT = { note: 'Nota', task: 'Tarea', ev: 'Evento' };
 function capUI() {
   const v = $('#capIn').value, m = capMode(v);
   const b = $('#capMode'); b.textContent = MODE_TXT[m]; b.dataset.m = m; b.classList.toggle('fixed', !!capOver);
-  $('#capIn').placeholder = m === 'task' ? 'Nueva tarea…' : m === 'ev' ? 'Nuevo evento… (vie 21 cena)' : '¿Qué tenés en mente?';
+  $('#capIn').placeholder = m === 'task' ? 'Nueva tarea…' : m === 'ev' ? (calsRW().length > 1 ? 'Evento… (sáb 21 partido #velez)' : 'Nuevo evento… (vie 21 cena)') : '¿Qué tenés en mente?';
 }
 let lastCap = null;
 async function capture(text) {
@@ -179,16 +197,18 @@ async function capture(text) {
   const m = capMode(text), p = P.parse(text);
   let it;
   if (m === 'note') it = { id: uid(), k: 'note', text: text.replace(/^\s*-\s+/, ''), c: Date.now(), color: '', pin: false, arch: false, media: [] };
-  else if (m === 'task') it = { id: uid(), k: 'task', title: p.title || text, due: p.date || (tab === 'cal' ? selDay : null), done: false, notes: '', lb: 'auto', c: Date.now() };
+  else if (m === 'task') it = { id: uid(), k: 'task', title: p.title || text, due: p.date || (tab === 'cal' ? selDay : null), time: p.time || null, done: false, notes: '', lb: 'auto', c: Date.now() };
   else {
     const date = p.date || (tab === 'cal' ? selDay : today());
-    it = { id: uid(), k: 'ev', title: p.title || text, date, start: p.time, end: p.end || (p.time ? plusHour(p.time) : null), color: '', notes: '', rep: '', lb: 'auto', ex: [], c: Date.now() };
+    let title = p.title || text, cal = cfg.defCal && (cfg.cals || {})[cfg.defCal] ? cfg.defCal : 'primary';
+    title = title.replace(/(^|\s)#([\wáéíóúñü]+)/gi, (m0, sp, tg) => { const k = calByTag(tg); if (k) { cal = k; return ''; } return m0; }).replace(/\s+/g, ' ').trim() || title;
+    it = { id: uid(), k: 'ev', title: cap1(title), date, start: p.time, end: p.end || (p.time ? plusHour(p.time) : null), color: '', notes: '', rep: '', lb: 'auto', ex: [], cal, c: Date.now() };
   }
   lastCap = it.id; capOver = null;
   await save(it);
   document.dispatchEvent(new CustomEvent('myndvs:cap', { detail: { k: m, id: it.id } }));
-  const where = m === 'note' ? 'Nota guardada' : m === 'task' ? `Tarea${it.due ? ' · ' + fmtShort(it.due) : ''}` : `Evento · ${fmtShort(it.date)}${it.start ? ' ' + it.start : ''}`;
-  toast(where, { label: 'Deshacer', fn: async () => { const x = ITEMS.get(lastCap); if (x) { if (x.k === 'note') await drop(x.id); else if (x.gid || x.tid) { x.del = true; await save(x); } else await drop(x.id); render(); } } });
+  const where = m === 'note' ? 'Nota guardada' : m === 'task' ? `Tarea${it.due ? ' · ' + fmtShort(it.due) : ''}${it.time ? ' ' + it.time : ''}` : `Evento · ${fmtShort(it.date)}${it.start ? ' ' + it.start : ''}${it.cal && it.cal !== 'primary' ? ' · ' + calName(it.cal) : ''}`;
+  toast(where, { label: 'Deshacer', fn: async () => { const x = ITEMS.get(lastCap); if (x) { if (x.k === 'note') { x.gone = true; x.text = ''; await save(x); } else if (x.gid || x.tid) { x.del = true; await save(x); } else await drop(x.id); render(); } } });
 }
 
 /* ---------- vistas ---------- */
@@ -204,6 +224,7 @@ function render() {
   if (tab === 'cal' && !query) calAfter();
   hydrate(v);
   syncDot(); capUI();
+  if (window.uiAfterRender) uiAfterRender();
 }
 
 /* tarjeta de nota */
@@ -220,11 +241,15 @@ function noteBody(n, max) {
   if (lines.length > (max || 99)) out.push('<p class="more">…</p>');
   return out.join('');
 }
-const linkify = s => esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>').replace(/(^|\s)#([\wáéíóúñü]+)/gi, '$1<span class="tag">#$2</span>');
+// links clickeables (sin la puntuación final) y #etiquetas resaltadas, sin meter etiquetas dentro de los links
+const linkify = s => esc(s).split(/(https?:\/\/[^\s<]+)/g).map((part, i) => {
+  if (i % 2) { const m = part.match(/^(.*?)([.,;:!?)\]]*)$/); return `<a href="${m[1]}" target="_blank" rel="noopener">${m[1].replace(/^https?:\/\/(www\.)?/, '').slice(0, 48)}${m[1].length > 60 ? '…' : ''}</a>${m[2]}`; }
+  return part.replace(/(^|\s)#([\wáéíóúñü]+)/gi, '$1<span class="tag">#$2</span>');
+}).join('');
 const tagsOf = n => [...new Set(((n.text || '').match(/(?:^|\s)#([\wáéíóúñü]+)/gi) || []).map(t => t.trim().slice(1).toLowerCase()))];
 function noteCard(n) {
   const imgs = (n.media || []).filter(m => m.t !== 'audio'), auds = (n.media || []).filter(m => m.t === 'audio');
-  return `<article class="note c-${n.color || 'base'}" data-a="openNote" data-id="${n.id}">
+  return `<article class="note c-${n.color || 'base'}" data-a="openNote" data-id="${n.id}" tabindex="0">
     ${n.pin ? `<i class="pinned">${ICO.pin}</i>` : ''}
     ${imgs.length ? `<div class="thumbs n${Math.min(imgs.length, 3)}">${imgs.slice(0, 3).map(m => `<img data-blob="${m.id}" alt="" class="${m.t}">`).join('')}</div>` : ''}
     ${n.text ? `<div class="nb">${noteBody(n, 9)}</div>` : ''}
@@ -232,7 +257,7 @@ function noteCard(n) {
     <footer>${ago(n.u || n.c)}</footer>
   </article>`;
 }
-function audioPill(a) { return `<button class="play" data-a="play" data-m="${a.id}" aria-label="Reproducir">${ICO.play}</button><span class="wave"></span><span class="dur">${a.dur ? fmtDur(a.dur) : 'audio'}</span>`; }
+function audioPill(a) { return `<button class="play" data-a="play" data-m="${a.id}" data-dur="${a.dur || 0}" aria-label="Reproducir">${ICO.play}</button><span class="wave"></span><span class="dur">${a.dur ? fmtDur(a.dur) : 'audio'}</span>`; }
 
 /* eventos de un día (incluye repeticiones) */
 function occurs(e, k) {
@@ -244,21 +269,22 @@ function occurs(e, k) {
   if (e.rep === 'y') return k.slice(5) === e.date.slice(5);
   return false;
 }
-const evOn = k => events().filter(e => occurs(e, k)).sort((a, b) => (a.start || '').localeCompare(b.start || ''));
-const tasksDue = k => tasks().filter(t => t.due === k);
+const evOn = k => ferEvents(k).concat(events().filter(e => occurs(e, k))).sort((a, b) => (a.start || '').localeCompare(b.start || ''));
+const byTime = (a, b) => (a.time || '99').localeCompare(b.time || '99');
+const tasksDue = k => tasks().filter(t => t.due === k).sort(byTime);
 function evRow(e, k) {
   const now = new Date(), nowHM = now.toTimeString().slice(0, 5), past = k === today() && e.end && e.end < nowHM, live = k === today() && e.start && e.start <= nowHM && (!e.end || e.end > nowHM);
-  return `<button class="ev${past ? ' past' : ''}${live ? ' live' : ''}" data-a="openEv" data-id="${e.id}" data-day="${k}" style="--c:${ECOL[e.color || '']}">
+  return `<button class="ev${past ? ' past' : ''}${live ? ' live' : ''}" data-a="openEv" data-id="${e.id}" data-day="${k}" style="--c:${evColor(e)}">
     <span class="t">${e.start ? `${e.start}${e.end ? '<small>' + e.end + '</small>' : ''}` : '<small>Todo el día</small>'}</span>
-    <span class="ti">${esc(e.title)}${e.rep ? ' <i class="rep" title="Se repite">↻</i>' : ''}${e.ro ? ' <i class="rep">' + esc(e.cal || '') + '</i>' : ''}</span>
+    <span class="ti">${esc(e.title)}${e.rep ? ' <i class="rep" title="Se repite">↻</i>' : ''}${e.cal && e.cal !== 'primary' ? `<small class="calname">${esc(calName(e.cal))}</small>` : ''}</span>
   </button>`;
 }
 function taskRow(t) {
-  const late = t.due && t.due < today() && !t.done;
+  const nowHM = new Date().toTimeString().slice(0, 5), late = !t.done && t.due && (t.due < today() || (t.due === today() && t.time && t.time < nowHM));
   return `<div class="task${t.done ? ' done' : ''}">
     <button class="tick" data-a="tick" data-id="${t.id}" aria-label="${t.done ? 'Desmarcar' : 'Completar'}"></button>
     <button class="ti" data-a="openTask" data-id="${t.id}">${esc(t.title)}${t.notes ? ' <i class="hasn">≡</i>' : ''}</button>
-    ${t.due ? `<span class="due${late ? ' late' : ''}">${fmtShort(t.due)}</span>` : ''}
+    ${t.due ? `<span class="due${late ? ' late' : ''}">${fmtShort(t.due)}${t.time ? ' · ' + t.time : ''}</span>` : ''}
   </div>`;
 }
 function lbCard() {
@@ -271,13 +297,16 @@ function lbCard() {
     <small>${xpHoy ? '+' + xpHoy + ' XP hoy · ' : ''}${open ? open + ' misión' + (open === 1 ? '' : 'es') + ' de tu agenda para hoy' : 'Sin misiones pendientes hoy'}</small></a>`;
 }
 function vHoy() {
-  const t = today(), evs = evOn(t), late = tasks().filter(x => !x.done && x.due && x.due < t), td = tasksDue(t).filter(x => !x.done);
+  const t = today(), evs = evOn(t).filter(e => !e.hol), late = tasks().filter(x => !x.done && x.due && x.due < t), td = tasksDue(t).filter(x => !x.done);
   const pins = notes().filter(n => n.pin && !n.arch && !n.del), recent = notes().filter(n => !n.pin && !n.arch && !n.del).sort((a, b) => (b.u || b.c) - (a.u || a.c)).slice(0, 4);
-  const next = []; for (let i = 1; i <= 3; i++) { const k = addDays(t, i); evOn(k).forEach(e => next.push([k, e])); }
-  return `<h1 class="day">${fmtLong(t)}</h1>
+  const next = []; for (let i = 1; i <= 3; i++) { const k = addDays(t, i); evOn(k).filter(e => !e.hol).forEach(e => next.push([k, e])); }
+  const fer = ferEvents(t), ferNext = (() => { for (let i = 1; i <= 45; i++) { const k = addDays(t, i), f = ferEvents(k); if (f.length) return [k, f[0], i]; } return null; })();
+  return `<p class="greet">${greet()}</p><h1 class="day">${fmtLong(t)}</h1>
+  ${fer.length ? `<div class="ferban">🇦🇷 Hoy es feriado: <b>${esc(fer[0].title)}</b></div>` : ferNext && ferNext[2] <= 10 ? `<div class="ferban soft">🇦🇷 Próximo feriado: <b>${esc(ferNext[1].title)}</b> · ${fmtShort(ferNext[0])} (${ferNext[2] === 1 ? 'mañana' : 'en ' + ferNext[2] + ' días'})</div>` : ''}
+  ${typeof wrappedCard === 'function' ? wrappedCard() : ''}
   ${lbCard()}
   <section><h2>Agenda</h2>${evs.length ? evs.map(e => evRow(e, t)).join('') : '<p class="empty">Nada agendado hoy.</p>'}
-    ${next.length ? `<details class="next"><summary>Próximos días (${next.length})</summary>${next.slice(0, 8).map(([k, e]) => `<div class="nx"><span>${fmtShort(k)}</span>${evRow(e, k)}</div>`).join('')}</details>` : ''}</section>
+    ${next.length ? `<details class="next"${evs.length ? '' : ' open'}><summary>Próximos días (${next.length})</summary>${next.slice(0, 8).map(([k, e]) => `<div class="nx"><span>${fmtShort(k)}</span>${evRow(e, k)}</div>`).join('')}</details>` : ''}</section>
   <section><h2>Tareas${late.length ? ` <em class="late">${late.length} atrasada${late.length === 1 ? '' : 's'}</em>` : ''}</h2>${late.concat(td).length ? late.concat(td).map(taskRow).join('') : '<p class="empty">Nada pendiente para hoy. Escribí <b>- algo</b> abajo para sumar una tarea.</p>'}</section>
   ${pins.length ? `<section><h2>Fijadas</h2><div class="grid">${pins.map(noteCard).join('')}</div></section>` : ''}
   <section><h2>Últimos pensamientos</h2>${recent.length ? `<div class="grid">${recent.map(noteCard).join('')}</div>` : '<p class="empty">Todavía no guardaste nada. Escribí, grabá un audio, sacá una foto o dibujá desde la barra de abajo.</p>'}</section>`;
@@ -300,11 +329,11 @@ function vNotas() {
 function vTareas() {
   const t = today(), all = tasks(), open = all.filter(x => !x.done);
   const late = open.filter(x => x.due && x.due < t).sort((a, b) => a.due.localeCompare(b.due));
-  const td = open.filter(x => x.due === t), wk = open.filter(x => x.due && x.due > t).sort((a, b) => a.due.localeCompare(b.due)), nod = open.filter(x => !x.due).sort((a, b) => (b.c || 0) - (a.c || 0));
+  const td = open.filter(x => x.due === t).sort(byTime), wk = open.filter(x => x.due && x.due > t).sort((a, b) => a.due.localeCompare(b.due) || byTime(a, b)), nod = open.filter(x => !x.due).sort((a, b) => (b.c || 0) - (a.c || 0));
   const done = all.filter(x => x.done).sort((a, b) => (b.doneAt || b.u) - (a.doneAt || a.u)).slice(0, 40);
   const sec = (h, L, cls) => L.length ? `<section${cls ? ` class="${cls}"` : ''}><h2>${h} <em>${L.length}</em></h2>${L.map(taskRow).join('')}</section>` : '';
   return (open.length ? '' : '<p class="empty big">Nada pendiente. 🎉<br>Escribí abajo para sumar una tarea (ej: <b>mañana pagar la luz</b>).</p>')
-    + sec('Atrasadas', late, 'warn') + sec('Hoy', td) + sec('Próximas', wk) + sec('Sin fecha', nod)
+    + sec('Atrasadas', late, 'latesec') + sec('Hoy', td) + sec('Próximas', wk) + sec('Sin fecha', nod)
     + (done.length ? `<section><h2><button class="link" data-a="toggleDone">${showDone ? 'Ocultar' : 'Ver'} hechas (${done.length})</button></h2>${showDone ? done.map(taskRow).join('') : ''}</section>` : '');
 }
 function vSearch() {
@@ -319,18 +348,30 @@ function vSearch() {
     ${!E.length && !T.length && !N.length && !D.length ? '<p class="empty">No encontré nada.</p>' : ''}`;
 }
 
+/* ---------- botón "atrás" del celu ---------- */
+// cada hoja o visor abierto deja una marca en el historial: "atrás" la cierra en vez de salir de la app
+const BACK = [];
+function pushBack(fn) { BACK.push(fn); try { history.pushState({ myndvs: BACK.length }, ''); } catch (e) { /* nada */ } }
+function popBack(fn) { const i = BACK.lastIndexOf(fn); if (i < 0) return; BACK.splice(i, 1); BACK._skip = (BACK._skip || 0) + 1; try { history.back(); } catch (e) { BACK._skip--; } }
+window.addEventListener('popstate', () => { if (BACK._skip) { BACK._skip--; return; } const fn = BACK.pop(); if (fn) fn(true); });
+
 /* ---------- hoja (editor) ---------- */
 let sheetClose = null;
+const sheetBack = () => closeSheet(true);
 function openSheet(html, onClose, cls) {
-  const sh = $('#sheet'); sh.className = 'sheet' + (cls ? ' ' + cls : ''); sh.innerHTML = html; sh.hidden = false; $('#sheetBg').hidden = false;
+  const sh = $('#sheet'), was = !sh.hidden; sh.className = 'sheet' + (cls ? ' ' + cls : '') + (was ? ' re' : ''); sh.innerHTML = (cls === 'full' ? '' : '<div class="grab" aria-hidden="true"></div>') + html; sh.hidden = false; $('#sheetBg').hidden = false;
+  if (!was) pushBack(sheetBack);
   sheetClose = onClose || null; hydrate(sh);
   document.body.classList.add('modal');
 }
-async function closeSheet() {
+async function closeSheet(fromBack) {
   if ($('#sheet').hidden) return;
   const f = sheetClose; sheetClose = null;
   if (f) await f();
-  $('#sheet').hidden = true; $('#sheetBg').hidden = true; $('#sheet').innerHTML = '';
+  if (!fromBack) popBack(sheetBack);
+  const sh = $('#sheet'); sh.classList.add('out'); $('#sheetBg').classList.add('out');
+  await new Promise(r => setTimeout(r, document.documentElement.classList.contains('rm') ? 0 : 150));
+  sh.hidden = true; $('#sheetBg').hidden = true; sh.innerHTML = ''; sh.classList.remove('out'); $('#sheetBg').classList.remove('out');
   document.body.classList.remove('modal');
   stopAudio(); render();
 }
@@ -379,7 +420,7 @@ function evEditor(e, day) {
   openSheet(`<form class="form" id="evForm">
     <div class="edbar"><button type="button" class="ib" data-a="close" aria-label="Cerrar">${ICO.back}</button><h2>${isNew ? 'Nuevo evento' : 'Evento'}</h2><span class="grow"></span>
       ${!isNew && !e.ro ? `<button type="button" class="ib" data-a="delEv" data-day="${day || ''}" aria-label="Borrar">${ICO.trash}</button>` : ''}</div>
-    ${e.ro ? `<p class="mute">Este evento es de “${esc(e.cal || 'otro calendario')}”; se edita en Google.</p>` : ''}
+    ${e.ro ? `<p class="mute">Es del calendario “${esc(calName(e.cal))}”, que es de solo lectura: se ve acá pero se cambia en Google.</p>` : ''}
     <input name="title" class="big" placeholder="Título" value="${esc(e.title || '')}" ${e.ro ? 'readonly' : ''} required>
     <div class="row"><label>Fecha<input type="date" name="date" value="${e.date}"></label>
       <label class="sw2"><input type="checkbox" name="allday" ${e.start ? '' : 'checked'}> Todo el día</label></div>
@@ -387,14 +428,16 @@ function evEditor(e, day) {
     <div class="row"><label>Repetir<select name="rep">${REP.map(([v, t]) => `<option value="${v}"${(e.rep || '') === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
       <label class="until" ${e.rep ? '' : 'hidden'}>Hasta<input type="date" name="until" value="${e.until || ''}"></label></div>
     <div class="wdays" ${e.rep === 'w' ? '' : 'hidden'}>${WDS.map((d, i) => `<label><input type="checkbox" name="wd" value="${i}" ${days.includes(i) ? 'checked' : ''}><span>${d}</span></label>`).join('')}</div>
-    <div class="row"><label>En Lifebgood<select name="lb">${LBK.map(([v, t]) => `<option value="${v}"${(e.lb || 'auto') === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label></div>
-    <div class="cols">${Object.keys(ECOL).map(c => `<label class="sw c-${c || 'base'}"><input type="radio" name="color" value="${c}" ${(e.color || '') === c ? 'checked' : ''}><span></span></label>`).join('')}</div>
+    <div class="row">${calsRW().length > 1 || e.ro ? `<label>Calendario<select name="cal" ${e.ro ? 'disabled' : ''}>${(e.ro ? [[e.cal, calOf(e) || { name: e.cal }]] : calsRW()).map(([k, c]) => `<option value="${esc(k)}"${(e.cal || 'primary') === k ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>` : ''}
+      <label>En Lifebgood<select name="lb">${LBK.map(([v, t]) => `<option value="${v}"${(e.lb || 'auto') === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label></div>
+    <div class="cols"><span class="mute small">Color</span>${Object.keys(ECOL).map(c => `<label class="sw c-${c || 'base'}" title="${c ? cap1(c) : 'El del calendario'}"${c ? '' : ` style="--c:${calBg(e.cal)}"`}><input type="radio" name="color" value="${c}" ${(e.color || '') === c ? 'checked' : ''}><span></span></label>`).join('')}</div>
     <textarea name="notes" placeholder="Notas">${esc(e.notes || '')}</textarea>
     ${e.ro ? '' : `<button class="primary" type="submit">${isNew ? 'Agendar' : 'Guardar'}</button>`}
     ${!isNew && e.rep && !e.ro && day ? `<button type="button" class="ghost" data-a="skipOcc" data-day="${day}">Borrar solo el ${fmtShort(day)}</button>` : ''}
   </form>`);
   const f = $('#evForm');
   f.allday.onchange = () => { $('.times', f).hidden = f.allday.checked; };
+  if (f.cal) f.cal.onchange = () => { const s0 = $('.cols .c-base', f); if (s0) s0.style.setProperty('--c', calBg(f.cal.value)); };
   f.rep.onchange = () => { $('.wdays', f).hidden = f.rep.value !== 'w'; $('.until', f).hidden = !f.rep.value; };
   f.onsubmit = async ev => {
     ev.preventDefault(); if (e.ro) return;
@@ -407,6 +450,8 @@ function evEditor(e, day) {
     e.rep = fd.get('rep') || ''; e.until = e.rep ? fd.get('until') || '' : '';
     e.days = e.rep === 'w' ? fd.getAll('wd').map(Number) : [];
     e.lb = fd.get('lb') || 'auto'; e.color = fd.get('color') || ''; e.notes = fd.get('notes') || '';
+    if (!e.ro && fd.get('cal')) { e.cal = fd.get('cal'); if (isNew) { cfg.defCal = e.cal; saveCfg(); } }
+    if (!e.cal) e.cal = 'primary';
     if (!e.c) e.c = Date.now();
     await save(e, { quiet: true }); selDay = e.date; closeSheet(); toast(isNew ? 'Evento agendado' : 'Evento guardado');
   };
@@ -419,17 +464,20 @@ function taskEditor(t) {
     <div class="edbar"><button type="button" class="ib" data-a="close" aria-label="Cerrar">${ICO.back}</button><h2>${isNew ? 'Nueva tarea' : 'Tarea'}</h2><span class="grow"></span>
       ${isNew ? '' : `<button type="button" class="ib" data-a="delTask" aria-label="Borrar">${ICO.trash}</button>`}</div>
     <input name="title" class="big" placeholder="¿Qué hay que hacer?" value="${esc(t.title || '')}" required>
-    <div class="row"><label>Vence<input type="date" name="due" value="${t.due || ''}"></label>
+    <div class="row"><label>Vence<input type="date" name="due" value="${t.due || ''}"></label><label class="tm">Hora <small>(opcional)</small><input type="time" name="time" value="${t.time || ''}"></label>
       <div class="quick"><button type="button" class="chip" data-q="0">Hoy</button><button type="button" class="chip" data-q="1">Mañana</button><button type="button" class="chip" data-q="7">En 1 semana</button><button type="button" class="chip" data-q="">Sin fecha</button></div></div>
     <div class="row"><label>En Lifebgood<select name="lb">${LBK.map(([v, x]) => `<option value="${v}"${(t.lb || 'auto') === v ? ' selected' : ''}>${x}</option>`).join('')}</select></label></div>
     <textarea name="notes" placeholder="Detalles">${esc(t.notes || '')}</textarea>
-    <button class="primary" type="submit">${isNew ? 'Agregar' : 'Guardar'}</button>
+    <div class="btns"><button class="primary grow" type="submit">${isNew ? 'Agregar' : 'Guardar'}</button>${isNew ? '' : `<button type="button" class="ghost" data-a="tkDone">${t.done ? 'Desmarcar' : '✓ Hecha'}</button>`}</div>
+    ${!isNew && t.c ? `<p class="mute small">Creada ${ago(t.c)}${t.done && t.doneAt ? ' · hecha ' + ago(t.doneAt) : ''}</p>` : ''}
   </form>`);
   const f = $('#tkForm');
+  const dk2 = $('[data-a=tkDone]', f); if (dk2) dk2.onclick = async () => { await closeSheet(); toggleTask(t.id); };
   $$('[data-q]', f).forEach(b => { b.onclick = () => { f.due.value = b.dataset.q === '' ? '' : addDays(today(), +b.dataset.q); }; });
   f.onsubmit = async ev => {
     ev.preventDefault(); const fd = new FormData(f);
-    t.title = (fd.get('title') || '').trim() || 'Sin título'; t.due = fd.get('due') || null; t.lb = fd.get('lb') || 'auto'; t.notes = fd.get('notes') || '';
+    t.title = (fd.get('title') || '').trim() || 'Sin título'; t.due = fd.get('due') || null; t.time = fd.get('time') || null; t.lb = fd.get('lb') || 'auto'; t.notes = fd.get('notes') || '';
+    if (t.time && !t.due) t.due = today();
     if (!t.c) t.c = Date.now();
     await save(t, { quiet: true }); closeSheet();
   };
@@ -437,6 +485,7 @@ function taskEditor(t) {
 }
 async function toggleTask(id) {
   const t = ITEMS.get(id); if (!t) return;
+  if (!t.done && !document.documentElement.classList.contains('rm')) await new Promise(r => setTimeout(r, 330)); // deja ver el tilde
   t.done = !t.done; t.doneAt = t.done ? Date.now() : 0;
   await save(t);
   if (t.done) document.dispatchEvent(new CustomEvent('myndvs:tick', { detail: { id } }));
@@ -449,7 +498,7 @@ async function delItem(it) {
 
 /* ---------- grabar audio ---------- */
 let recState = null;
-async function record(onDone) {
+async function record(onDone, onCancel) {
   if (!navigator.mediaDevices || !window.MediaRecorder) return toast('Este navegador no puede grabar audio');
   let stream;
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
@@ -472,14 +521,17 @@ async function record(onDone) {
     loop();
   } catch (e) { /* sin vúmetro */ }
   const tick = setInterval(() => { $('#recT', ov).textContent = fmtDur((Date.now() - t0) / 1000); }, 250);
-  const end = save => new Promise(res => {
+  const onBack = () => end(false, true);
+  const end = (save, fromBack) => new Promise(res => {
+    if (!fromBack) popBack(onBack);
     clearInterval(tick); cancelAnimationFrame(raf); try { ac && ac.close(); } catch (e) { /* nada */ }
-    mr.onstop = () => { stream.getTracks().forEach(t => t.stop()); ov.remove(); recState = null; res(); if (save && chunks.length) onDone(new Blob(chunks, { type: mr.mimeType || mime || 'audio/webm' }), (Date.now() - t0) / 1000); };
+    mr.onstop = () => { stream.getTracks().forEach(t => t.stop()); ov.remove(); recState = null; res(); if (!save && onCancel) onCancel(); if (save && chunks.length) onDone(new Blob(chunks, { type: mr.mimeType || mime || 'audio/webm' }), (Date.now() - t0) / 1000); };
     mr.stop();
   });
   $('#recStop', ov).onclick = () => end(true);
   $('#recCancel', ov).onclick = () => end(false);
   recState = { end };
+  pushBack(onBack);
   mr.start(1000);
 }
 /* reproductor */
@@ -491,14 +543,15 @@ async function play(mid, btn) {
   player = new Audio(u); playing = mid;
   const wave = btn.parentElement.querySelector('.wave'), dur = btn.parentElement.querySelector('.dur');
   btn.innerHTML = ICO.pause; btn.parentElement.classList.add('on');
-  player.ontimeupdate = () => { if (player.duration && isFinite(player.duration)) { wave.style.setProperty('--p', (100 * player.currentTime / player.duration) + '%'); dur.textContent = fmtDur(player.currentTime); } };
+  const total = () => player.duration && isFinite(player.duration) ? player.duration : +btn.dataset.dur || 0;
+  player.ontimeupdate = () => { const T = total(); dur.textContent = fmtDur(player.currentTime); if (T) wave.style.setProperty('--p', Math.min(100, 100 * player.currentTime / T) + '%'); };
   player.onpause = player.onended = () => { btn.innerHTML = ICO.play; btn.parentElement.classList.remove('on'); if (player && player.ended) { wave.style.setProperty('--p', '0%'); playing = null; } };
   player.play().catch(() => toast('No se pudo reproducir'));
 }
 function stopAudio() { if (player) { player.pause(); player = null; playing = null; } }
 
 /* ---------- dibujo ---------- */
-function drawPad(baseId, onSave) {
+function drawPad(baseId, onSave, onCancel) {
   const ov = document.createElement('div'); ov.className = 'drawov';
   const COLS = ['#1d1f24', '#e5484d', '#3b82f6', '#22a565', '#f5a524', '#8b5cf6'];
   ov.innerHTML = `<div class="dbar">
@@ -533,7 +586,9 @@ function drawPad(baseId, onSave) {
     }
   };
   cv.onpointerup = cv.onpointercancel = () => { drawing = false; };
-  const close = () => { ov.remove(); document.removeEventListener('keydown', key); };
+  const onBack = () => { ov.remove(); document.removeEventListener('keydown', key); if (onCancel) onCancel(); };
+  const close = () => { ov.remove(); document.removeEventListener('keydown', key); popBack(onBack); };
+  pushBack(onBack);
   // recorta al dibujo (con margen) para que la tarjeta no quede llena de blanco
   const crop = () => {
     const w = cv.width, h = cv.height, px = g.getImageData(0, 0, w, h).data;
@@ -548,7 +603,7 @@ function drawPad(baseId, onSave) {
     o.getContext('2d').drawImage(cv, x0, y0, o.width, o.height, 0, 0, o.width, o.height);
     return o;
   };
-  const key = e => { if (e.key === 'Escape') close(); if ((e.ctrlKey || e.metaKey) && e.key === 'z') { const u = undo.pop(); if (u) g.putImageData(u, 0, 0); } };
+  const key = e => { if (e.key === 'Escape') { close(); if (onCancel) onCancel(); } if ((e.ctrlKey || e.metaKey) && e.key === 'z') { const u = undo.pop(); if (u) g.putImageData(u, 0, 0); } };
   document.addEventListener('keydown', key);
   ov.addEventListener('click', e => {
     const b = e.target.closest('[data-d]'); if (!b) return;
@@ -558,7 +613,7 @@ function drawPad(baseId, onSave) {
     else if (d === 'size') { si = (si + 1) % 3; $('#dsz', ov).style.fontSize = [9, 14, 20][si] + 'px'; }
     else if (d === 'undo') { const u = undo.pop(); if (u) g.putImageData(u, 0, 0); }
     else if (d === 'clear') { snap(); g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = PAPER; g.fillRect(0, 0, cv.width, cv.height); g.scale(dpr, dpr); dirty = true; }
-    else if (d === 'cancel') close();
+    else if (d === 'cancel') { close(); if (onCancel) onCancel(); }
     else if (d === 'save') { if (!dirty && !baseId) return close(); const out = crop(); out.toBlob(b2 => { close(); if (b2) onSave(b2); }, 'image/png'); }
   });
   $('#dsz', ov).style.fontSize = '9px';
@@ -568,15 +623,17 @@ function drawPad(baseId, onSave) {
 async function viewImg(id) {
   const u = await blobUrl(id); if (!u) return;
   const ov = document.createElement('div'); ov.className = 'imgov'; ov.innerHTML = `<img src="${u}" alt=""><button class="ib" aria-label="Cerrar">${ICO.x}</button>`;
-  ov.onclick = () => ov.remove(); document.body.appendChild(ov);
+  const close = fromBack => { ov.classList.add('out'); setTimeout(() => ov.remove(), 160); document.removeEventListener('keydown', k); if (fromBack !== true) popBack(close); };
+  const k = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  ov.onclick = () => close(); document.addEventListener('keydown', k); document.body.appendChild(ov); pushBack(close);
 }
 
 /* ---------- crear notas con archivos desde la barra ---------- */
-async function newNoteWith(kind, extraText) {
+async function newNoteWith(kind, extraText, onCancel) {
   const n = { id: uid(), k: 'note', text: extraText || '', c: Date.now(), color: '', pin: false, arch: false, media: [] };
   const made = () => document.dispatchEvent(new CustomEvent('myndvs:cap', { detail: { k: 'media', id: n.id } }));
-  if (kind === 'rec') record(async (b, dur) => { await addMedia(n, 'audio', b, { dur: Math.round(dur) }); await save(n); made(); toast('Audio guardado'); });
-  else if (kind === 'dibu') drawPad(null, async b => { await addMedia(n, 'draw', b); await save(n); made(); toast('Dibujo guardado'); });
+  if (kind === 'rec') record(async (b, dur) => { await addMedia(n, 'audio', b, { dur: Math.round(dur) }); await save(n); made(); toast('Audio guardado'); }, onCancel);
+  else if (kind === 'dibu') drawPad(null, async b => { await addMedia(n, 'draw', b); await save(n); made(); toast('Dibujo guardado'); }, onCancel);
   else if (kind === 'foto') pickImages(async files => { for (const f of files) await addMedia(n, 'img', await shrink(f)); await save(n); made(); toast(files.length > 1 ? `${files.length} imágenes guardadas` : 'Imagen guardada'); });
 }
 let pickCb = null;
@@ -584,7 +641,7 @@ function pickImages(cb) { pickCb = cb; const i = $('#fileIn'); i.value = ''; i.c
 $('#fileIn').onchange = e => { const fs = [...e.target.files]; if (fs.length && pickCb) pickCb(fs); pickCb = null; };
 
 /* ---------- Google Calendar y Tasks ---------- */
-const GSCOPE = 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/tasks';
+const GSCOPE = 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.calendarlist.readonly https://www.googleapis.com/auth/tasks';
 let gTok = null;
 try { gTok = JSON.parse(sessionStorage.getItem('myndvs-gtok') || 'null'); } catch (e) { gTok = null; }
 function loadGis() {
@@ -647,6 +704,8 @@ function g403(e) {
   return `Google no dejó usar ${api}${msg ? ': ' + msg.slice(0, 140) : ''}`;
 }
 const dayCompact = k => k.replace(/-/g, '');
+// colores de evento de Google → los de la app (el resto toma el color del calendario)
+const GCOL = { 11: 'rojo', 4: 'rojo', 5: 'ambar', 6: 'ambar', 2: 'verde', 10: 'verde', 7: 'azul', 9: 'azul', 1: 'violeta', 3: 'violeta' };
 function toGEvent(e) {
   const o = { summary: e.title, description: e.notes || '', extendedProperties: { private: { myndvs: '1', lbk: e.lb || 'auto', color: e.color || '' } } };
   if (e.start) { o.start = { dateTime: `${e.date}T${e.start}:00`, timeZone: TZ }; o.end = { dateTime: `${e.date}T${e.end || plusHour(e.start)}:00`, timeZone: TZ }; }
@@ -662,11 +721,12 @@ function toGEvent(e) {
   return o;
 }
 const localDT = s => { const d = new Date(s); return { date: dk(d), time: d.toTimeString().slice(0, 5) }; };
-function fromGEvent(g, base) {
+function fromGEvent(g, base, ck, cinfo) {
   const e = base || { id: uid(), k: 'ev', c: Date.now() };
-  e.gid = g.id; e.title = g.summary || '(Sin título)'; e.notes = g.description || '';
+  e.gid = g.id; e.cal = ck || 'primary'; e.gcal = e.cal; e.ro = !!(cinfo && !cinfo.rw); e.title = g.summary || '(Sin título)'; e.notes = g.description || '';
   const pv = (g.extendedProperties && g.extendedProperties.private) || {};
-  if (['auto', 'p', 's', 'i'].includes(pv.lbk)) e.lb = pv.lbk; if (pv.color !== undefined) e.color = NCOL.includes(pv.color) ? pv.color : '';
+  if (['auto', 'p', 's', 'i'].includes(pv.lbk)) e.lb = pv.lbk;
+  e.color = pv.color !== undefined && NCOL.includes(pv.color) ? pv.color : GCOL[g.colorId] || '';
   if (g.start.date) { e.date = g.start.date; e.start = null; e.end = null; }
   else { const a = localDT(g.start.dateTime), b = localDT(g.end.dateTime); e.date = a.date; e.start = a.time; e.end = b.date === a.date ? b.time : '23:59'; }
   e.rep = ''; e.days = []; e.until = ''; e.ex = [];
@@ -684,59 +744,91 @@ function fromGEvent(g, base) {
   e.lb = e.lb || 'auto'; e.dirty = false;
   return e;
 }
-const byGid = gid => [...ITEMS.values()].find(x => x.k === 'ev' && x.gid === gid);
+const byGid = (gid, ck) => [...ITEMS.values()].find(x => x.k === 'ev' && x.gid === gid && (x.gcal || x.cal || 'primary') === (ck || 'primary'));
+const realCal = k => !k || k === 'primary' ? 'primary' : (cfg.cals && cfg.cals[k] && cfg.cals[k].id) || k;
+async function loadCals(inter) {
+  const old = cfg.cals || {}, cals = {};
+  let page = '';
+  do {
+    const j = await gapi(`${CAL}/users/me/calendarList?maxResults=250${page ? '&pageToken=' + page : ''}`, {}, inter);
+    for (const c of j.items || []) {
+      if (c.deleted) continue;
+      const k = c.primary ? 'primary' : c.id, o = old[k];
+      cals[k] = { id: c.primary ? 'primary' : c.id, name: c.summaryOverride || (c.primary ? 'Principal' : c.summary) || 'Calendario', bg: HEX.test(c.backgroundColor || '') ? c.backgroundColor : '#8ea2ff', rw: c.accessRole === 'owner' || c.accessRole === 'writer', on: o ? o.on !== false : c.selected !== false && !c.hidden };
+    }
+    page = j.nextPageToken || '';
+  } while (page);
+  if (!cals.primary) cals.primary = { id: 'primary', name: 'Principal', bg: '#8ea2ff', rw: true, on: true };
+  // calendarios que ya no están: se sacan sus eventos
+  for (const k of Object.keys(old)) if (!cals[k]) { for (const e of [...ITEMS.values()].filter(x => x.k === 'ev' && (x.gcal || x.cal) === k && !x.dirty)) await drop(e.id); delete (cfg.gsyncs || {})[k]; }
+  cfg.cals = cals; cfg.calsAt = Date.now(); saveCfg();
+}
 const byTid = tid => [...ITEMS.values()].find(x => x.k === 'task' && x.tid === tid);
 
 async function calPush(inter) {
   for (const e of [...ITEMS.values()].filter(x => x.k === 'ev' && x.dirty && !x.ro)) {
-    if (e.del) { if (e.gid) { try { await gapi(`${CAL}/calendars/primary/events/${encodeURIComponent(e.gid)}`, { method: 'DELETE' }, inter); } catch (x) { if (x.status !== 404 && x.status !== 410) throw x; } } await drop(e.id); continue; }
+    const want = e.cal || 'primary', at = e.gcal || 'primary', ev = (k, id) => `${CAL}/calendars/${encodeURIComponent(realCal(k))}/events${id ? '/' + encodeURIComponent(id) : ''}`;
+    if (e.del) { if (e.gid) { try { await gapi(ev(at, e.gid), { method: 'DELETE' }, inter); } catch (x) { if (x.status !== 404 && x.status !== 410) throw x; } } await drop(e.id); continue; }
+    // cambió de calendario: se mueve en Google (mismo evento, sin duplicar)
+    if (e.gid && at !== want && !e.inst) { try { await gapi(`${ev(at, e.gid)}/move?destination=${encodeURIComponent(realCal(want))}`, { method: 'POST' }, inter); e.gcal = want; } catch (x) { if (x.status === 404 || x.status === 410) e.gid = null; else throw x; } }
     const body = JSON.stringify(toGEvent(e));
     let g;
-    if (e.gid) { try { g = await gapi(`${CAL}/calendars/primary/events/${encodeURIComponent(e.gid)}`, { method: 'PATCH', body }, inter); } catch (x) { if (x.status === 404 || x.status === 410) e.gid = null; else throw x; } }
-    if (!e.gid) g = await gapi(`${CAL}/calendars/primary/events`, { method: 'POST', body }, inter);
-    e.gid = g.id; e.dirty = false; await DB.put('items', e);
+    if (e.gid) { try { g = await gapi(ev(e.gcal || want, e.gid), { method: 'PATCH', body }, inter); } catch (x) { if (x.status === 404 || x.status === 410) e.gid = null; else throw x; } }
+    if (!e.gid) g = await gapi(ev(want), { method: 'POST', body }, inter);
+    e.gid = g.id; e.gcal = want; e.dirty = false; await DB.put('items', e);
   }
 }
 async function calPull(inter) {
-  let page = '', token = cfg.gsync, guard = 0;
+  if (!cfg.cals || Date.now() - (cfg.calsAt || 0) > 6 * 36e5 || inter) {
+    try { await loadCals(inter); }
+    catch (x) { if (!cfg.cals) cfg.cals = { primary: { id: 'primary', name: 'Principal', bg: '#8ea2ff', rw: true, on: true } }; if (x.status === 403) cfg.calsErr = true; }
+  }
+  cfg.gsyncs = cfg.gsyncs || {};
+  if (cfg.gsync && !cfg.gsyncs.primary) { cfg.gsyncs.primary = cfg.gsync; cfg.gsync = ''; }
+  let n = 0;
+  for (const [k, c] of Object.entries(cfg.cals)) { if (c.on === false) continue; n += await calPullOne(k, c, inter); }
+  return n;
+}
+async function calPullOne(ck, cinfo, inter) {
+  let page = '', token = cfg.gsyncs[ck] || '', guard = 0;
   const items = [];
   const min = new Date(); min.setMonth(min.getMonth() - 6);
   for (;;) {
-    let url = `${CAL}/calendars/primary/events?maxResults=2500&singleEvents=false`;
+    let url = `${CAL}/calendars/${encodeURIComponent(realCal(ck))}/events?maxResults=2500&singleEvents=false`;
     url += token ? '&syncToken=' + encodeURIComponent(token) : '&timeMin=' + encodeURIComponent(min.toISOString());
     if (page) url += '&pageToken=' + encodeURIComponent(page);
     let j;
     try { j = await gapi(url, {}, inter); }
-    catch (x) { if (x.status === 410 && token) { cfg.gsync = ''; token = ''; page = ''; items.length = 0; continue; } throw x; }
+    catch (x) { if (x.status === 410 && token) { token = ''; page = ''; items.length = 0; continue; } if (ck !== 'primary' && (x.status === 404 || x.status === 403)) return 0; throw x; }
     items.push(...(j.items || []));
     if (j.nextPageToken && ++guard < 20) { page = j.nextPageToken; continue; }
-    cfg.gsync = j.nextSyncToken || ''; break;
+    cfg.gsyncs[ck] = j.nextSyncToken || ''; break;
   }
   items.sort((a, b) => (a.recurringEventId ? 1 : 0) - (b.recurringEventId ? 1 : 0));
   let n = 0;
   for (const g of items) {
-    const loc = byGid(g.id);
+    const loc = byGid(g.id, ck);
     if (g.recurringEventId) {
       // una fecha de un evento que se repite: se borró o se movió
-      const m = byGid(g.recurringEventId), os = g.originalStartTime || {};
+      const m = byGid(g.recurringEventId, ck), os = g.originalStartTime || {};
       const ok = os.date || (os.dateTime ? localDT(os.dateTime).date : '');
       if (m && ok && !(m.ex || []).includes(ok)) { m.ex = (m.ex || []).concat(ok); await DB.put('items', m); }
       if (g.status === 'cancelled') { if (loc && !loc.dirty) await drop(loc.id); continue; }
       if (loc && loc.dirty) continue;
-      const e = fromGEvent(g, loc);
+      const e = fromGEvent(g, loc, ck, cinfo);
       e.inst = true; e.u = Date.now(); ITEMS.set(e.id, e); await DB.put('items', e); n++;
       continue;
     }
     if (g.status === 'cancelled') { if (loc && !loc.dirty) { await drop(loc.id); n++; } continue; }
     if (loc && loc.dirty) continue; // lo de acá gana: se sube en la próxima
-    const e = fromGEvent(g, loc);
+    const e = fromGEvent(g, loc, ck, cinfo);
     e.u = Date.now(); ITEMS.set(e.id, e); await DB.put('items', e); n++;
   }
   return n;
 }
 function toGTask(t) {
-  const mk = t.lb && t.lb !== 'auto' ? `\n[lb:${t.lb}]` : '';
-  return { title: t.title, notes: (t.notes || '').replace(/\n?\[lb:[psi]\]/g, '') + mk, due: t.due ? t.due + 'T00:00:00.000Z' : null, status: t.done ? 'completed' : 'needsAction' };
+  const mk = (t.lb && t.lb !== 'auto' ? `\n[lb:${t.lb}]` : '') + (t.time ? `\n[hora:${t.time}]` : '');
+  return { title: t.title, notes: (t.notes || '').replace(/\n?\[(lb|hora):[^\]]*\]/g, '') + mk, due: t.due ? t.due + 'T00:00:00.000Z' : null, status: t.done ? 'completed' : 'needsAction' };
 }
 async function taskPush(inter) {
   for (const t of [...ITEMS.values()].filter(x => x.k === 'task' && x.dirty)) {
@@ -759,8 +851,8 @@ async function taskPull(inter) {
       let t = byTid(k.id);
       if (t && t.dirty) continue;
       if (!t) { if (k.status === 'completed' && k.completed && Date.now() - Date.parse(k.completed) > 30 * 864e5) continue; t = { id: uid(), k: 'task', c: Date.now(), tid: k.id, lid: '@default' }; }
-      const mk = (k.notes || '').match(/\[lb:([psi])\]/);
-      Object.assign(t, { title: k.title, notes: (k.notes || '').replace(/\n?\[lb:[psi]\]/g, ''), due: k.due ? k.due.slice(0, 10) : null, done: k.status === 'completed', doneAt: k.completed ? Date.parse(k.completed) : 0, lb: mk ? mk[1] : 'auto', dirty: false, u: Date.now() });
+      const mk = (k.notes || '').match(/\[lb:([psi])\]/), hr = (k.notes || '').match(/\[hora:(\d{2}:\d{2})\]/);
+      Object.assign(t, { time: hr ? hr[1] : null, title: k.title, notes: (k.notes || '').replace(/\n?\[(lb|hora):[^\]]*\]/g, ''), due: k.due ? k.due.slice(0, 10) : null, done: k.status === 'completed', doneAt: k.completed ? Date.parse(k.completed) : 0, lb: mk ? mk[1] : 'auto', dirty: false, u: Date.now() });
       ITEMS.set(t.id, t); await DB.put('items', t); n++;
     }
     page = j.nextPageToken || '';
@@ -900,6 +992,21 @@ function bridge() {
   } catch (e) { /* nada */ }
 }
 
+/* ---------- calendarios: mostrar/ocultar y dónde van los nuevos ---------- */
+function calsSheet() {
+  const L = Object.entries(cfg.cals || {});
+  openSheet(`<div class="form">
+    <div class="edbar"><button class="ib" data-a="close" aria-label="Cerrar">${ICO.back}</button><h2>Calendarios</h2></div>
+    ${!L.length ? `<div class="calist"><label class="calrow"><input type="checkbox" data-a="ferOn" ${ferOn() ? 'checked' : ''}><i style="background:${FER_COL}"></i><span>🇦🇷 Feriados de Argentina</span></label></div><p class="empty">Conectá Google y sincronizá: acá van a aparecer todos tus calendarios (Principal, Vélez, Automovilismo…).</p>${gCid() ? '<button class="primary" data-a="gsync">Sincronizar ahora</button>' : '<button class="primary" data-a="settings">Ir a Ajustes</button>'}`
+      : `${cfg.calsErr ? '<p class="warn small">Para ver todos tus calendarios, tocá "Volver a conectar" en Ajustes y aceptá el permiso nuevo.</p>' : ''}
+      <p class="mute small">Tocá para mostrar u ocultar. Los que tienen 🔒 son de solo lectura (feriados, compartidos).</p>
+      <div class="calist"><label class="calrow"><input type="checkbox" data-a="ferOn" ${ferOn() ? 'checked' : ''}><i style="background:${FER_COL}"></i><span>🇦🇷 Feriados de Argentina <small class="mute">(incorporados, se actualizan solos)</small></span></label>${L.map(([k, c]) => `<label class="calrow"><input type="checkbox" data-a="calOn" data-k="${esc(k)}" ${c.on !== false ? 'checked' : ''}><i style="background:${HEX.test(c.bg) ? c.bg : 'var(--acc)'}"></i><span>${esc(c.name)}${c.rw ? '' : ' 🔒'}</span></label>`).join('')}</div>
+      ${calsRW().length > 1 ? `<label class="mute small">Los eventos nuevos van a<select id="defCal">${calsRW().map(([k, c]) => `<option value="${esc(k)}"${(cfg.defCal || 'primary') === k ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>
+      <p class="mute small">Tip: en la barra de abajo escribí <b>#</b> y el nombre del calendario, por ejemplo <b>sáb 21 Vélez vs Talleres #velez</b> o <b>dom 10 carrera de F1 #auto</b>.</p>` : ''}`}
+  </div>`);
+  const d = $('#defCal'); if (d) d.onchange = () => { cfg.defCal = d.value; saveCfg(); toast('Listo: los nuevos van a ' + calName(d.value)); };
+}
+
 /* ---------- indicador de sincronización ---------- */
 function syncDot() {
   const d = $('#syncDot'); if (!d) return;
@@ -918,8 +1025,8 @@ function openSettings() {
       ${gCid() ? `<p class="mute">${cfg.gcid ? 'ID de cliente propio guardado.' : 'Encontré el ID de cliente de Lifebgood en este navegador y lo uso.'} ${cfg.glast ? 'Última sincronización ' + ago(cfg.glast) + '.' : 'Todavía no sincronizaste.'}</p>
         ${cfg.gerr && cfg.gerr !== 'notoken' ? `<p class="warn">⚠ ${esc(cfg.gerr)}</p>${cfg.gwhy ? `<details class="guide"><summary>Detalle técnico (para pasárselo a Claude)</summary><code>${esc(cfg.gwhy)}</code></details>` : ''}` : ''}
         ${cfg.gfix && cfg.gfix.k === 'api' ? `<div class="btns"><a class="primary" href="https://console.cloud.google.com/apis/library/${cfg.gfix.api === 'tasks' ? 'tasks' : 'calendar-json'}.googleapis.com" target="_blank" rel="noopener">Habilitarla en Google Cloud</a></div><p class="mute small">Se abre con tu Gmail: elegí arriba el proyecto <b>Lifebgood</b> y tocá <b>Habilitar</b>. Después volvé y tocá Sincronizar.</p>` : ''}
-        <div class="btns"><button class="primary" data-a="gsync">Sincronizar ahora</button><button class="ghost" data-a="greconnect">Volver a conectar</button>${cfg.gcid ? '<button class="ghost" data-a="gforget">Quitar ID</button>' : ''}</div>
-        <p class="mute small">Se sincroniza tu calendario principal y tu lista de tareas principal. Los avisos del celu los sigue dando Google Calendar.</p>`
+        <div class="btns"><button class="primary" data-a="gsync">Sincronizar ahora</button><button class="ghost" data-a="cals">Calendarios${cfg.cals ? ' (' + Object.keys(cfg.cals).length + ')' : ''}</button><button class="ghost" data-a="greconnect">Volver a conectar</button>${cfg.gcid ? '<button class="ghost" data-a="gforget">Quitar ID</button>' : ''}</div>
+        <p class="mute small">Se sincronizan todos tus calendarios (elegís cuáles ver) y tu lista de tareas principal. Los avisos del celu los sigue dando Google Calendar.</p>`
       : `<p class="mute">Pegá el <b>ID de cliente</b> de tu proyecto de Google Cloud. Es el mismo de Lifebgood: sirve tal cual porque las dos apps están en el mismo sitio.</p>
         <div class="row"><input id="gcidIn" placeholder="…apps.googleusercontent.com" autocomplete="off"><button class="primary" data-a="gcidSave">Guardar</button></div>`}
       <details class="guide"${gCid() ? '' : ' open'}><summary>¿Dónde lo consigo?</summary><ol>
@@ -1002,7 +1109,7 @@ document.addEventListener('click', async e => {
   const a = b.dataset.a, id = b.dataset.id;
   switch (a) {
     case 'capmode': { const order = ['note', 'task', 'ev'], cur = capMode($('#capIn').value); capOver = order[(order.indexOf(cur) + 1) % 3]; capUI(); $('#capIn').focus(); break; }
-    case 'rec': case 'foto': case 'dibu': { const v = $('#capIn').value.trim(); $('#capIn').value = ''; capUI(); newNoteWith(a, v); break; }
+    case 'rec': case 'foto': case 'dibu': { const v = $('#capIn').value.trim(); $('#capIn').value = ''; capUI(); newNoteWith(a, v, () => { if (v && !$('#capIn').value) { $('#capIn').value = v; capUI(); } }); break; }
     case 'search': { const open = $('#searchBox').hidden; $('#searchBox').hidden = !open; $('#brand').hidden = open; if (open) $('#searchIn').focus(); else { query = ''; $('#searchIn').value = ''; render(); } break; }
     case 'settings': openSettings(); break;
     case 'sync': if (!gCid() && !ghTok()) openSettings(); else { gsync(true); cloudSync(false); } break;
@@ -1026,8 +1133,8 @@ document.addEventListener('click', async e => {
     case 'editDraw': { const mid = b.dataset.m; drawPad(mid, async bl => { const m = curNote.media.find(x => x.id === mid), nid = uid(); await DB.put('blobs', bl, nid); m.id = nid; await DB.del('blobs', mid); const u = URLS.get(mid); if (u) { URL.revokeObjectURL(u); URLS.delete(mid); } if ((cfg.up || []).includes(mid)) { cfg.mdel.push(mid); saveCfg(); } refreshNoteEditor(); }); break; }
     case 'viewImg': viewImg(b.dataset.m); break;
     case 'rmMedia': { const mid = b.dataset.m; curNote.media = curNote.media.filter(x => x.id !== mid); await DB.del('blobs', mid); if ((cfg.up || []).includes(mid)) { cfg.mdel.push(mid); saveCfg(); } refreshNoteEditor(); break; }
-    case 'openEv': { const ev = ITEMS.get(id); if (ev) evEditor(ev, b.dataset.day); break; }
-    case 'newEv': evEditor({ id: uid(), k: 'ev', title: '', date: selDay, start: null, end: null, color: '', notes: '', rep: '', lb: 'auto', ex: [] }); break;
+    case 'openEv': { if (/^fer-/.test(id || '')) { const f = ferEvents(b.dataset.day || '').find(x => x.id === id); if (f) toast(`🇦🇷 ${f.title} · ${f.type}`); break; } const ev = ITEMS.get(id); if (ev) evEditor(ev, b.dataset.day); break; }
+    case 'newEv': evEditor({ id: uid(), k: 'ev', title: '', date: selDay, start: null, end: null, color: '', notes: '', rep: '', lb: 'auto', ex: [], cal: cfg.defCal && (cfg.cals || {})[cfg.defCal] ? cfg.defCal : 'primary' }); break;
     case 'tick': toggleTask(id); break;
     case 'openTask': { const t = ITEMS.get(id); if (t) taskEditor(t); break; }
     case 'toggleDone': showDone = !showDone; render(); break;
@@ -1041,6 +1148,9 @@ document.addEventListener('click', async e => {
     case 'ghOwn': { const d = b.closest('details'); d.insertAdjacentHTML('beforeend', '<div class="row"><input id="ghIn" placeholder="ghp_… o github_pat_…" autocomplete="off"><button class="primary" data-a="ghSave">Guardar</button></div>'); b.parentElement.remove(); $('#ghIn').focus(); break; }
     case 'cforget': cfg.ghtok = ''; saveCfg(); openSettings(); break;
     case 'export': exportAll(); break;
+    case 'cals': calsSheet(); break;
+    case 'ferOn': cfg.feriados = b.checked; saveCfg(); break;
+    case 'calOn': { const c = (cfg.cals || {})[b.dataset.k]; if (!c) break; c.on = b.checked; saveCfg(); if (c.on) gsync(false); break; }
     case 'lockOn': {
       const a1 = $('#lkA').value, a2 = $('#lkB').value;
       if (a1.length < 8) { toast('Tiene que tener al menos 8 caracteres'); break; }
@@ -1063,6 +1173,7 @@ $('#searchIn').oninput = e => { query = e.target.value; render(); };
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') { if (recState) return; if (!$('#sheet').hidden) closeSheet(); else if (query) { query = ''; $('#searchIn').value = ''; $('#searchBox').hidden = true; $('#brand').hidden = false; render(); } }
   if (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); $('#capIn').focus(); }
+  if (e.key === 'Enter' && document.activeElement && document.activeElement.matches('[tabindex="0"][data-a]')) { e.preventDefault(); document.activeElement.click(); }
 });
 window.addEventListener('storage', e => { if (e.key === 'lifebgood-v1' && tab === 'hoy' && $('#sheet').hidden) render(); });
 window.addEventListener('online', () => { gSoon(); cloudSoon(); });
@@ -1086,7 +1197,7 @@ document.addEventListener('click', async e => {
 }, true);
 
 /* ---------- arranque ---------- */
-(async function start() {
+async function start() {
   try { await DB.open(); } catch (e) { $('#view').innerHTML = '<p class="empty">Este navegador no deja guardar datos (¿modo incógnito?).</p>'; return; }
   await lockAtStart();
   for (const raw of await DB.all('items')) { const it = clean(raw); if (it) ITEMS.set(it.id, it); }
@@ -1098,8 +1209,9 @@ document.addEventListener('click', async e => {
   await purgeTrash(false);
   render(); bridge();
   if (typeof tourAuto === 'function' && !location.hash) tourAuto();
-  if (gCid() && gTok && gTok.exp > Date.now()) gsync(false); else if (gCid()) { cfg.gerr = cfg.glast ? 'notoken' : cfg.gerr; syncDot(); }
+  if (gCid() && gTok && gTok.exp > Date.now()) gsync(false); else if (gCid()) { cfg.gerr = 'notoken'; cfg.gwhy = ''; syncDot(); }
   if (ghTok()) cloudSync(false);
+  ferRefresh();
   if (location.hash === '#audio') newNoteWith('rec'); else if (location.hash === '#nota') $('#capIn').focus();
   if (location.hash) history.replaceState(null, '', location.pathname);
   if ('serviceWorker' in navigator && ORIGIN_OK) {
@@ -1108,4 +1220,6 @@ document.addEventListener('click', async e => {
     navigator.serviceWorker.addEventListener('controllerchange', () => { if (had && !done && !$('.lockov') && $('#sheet').hidden && !recState) { done = true; location.reload(); } });
     navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(r => r.update()).catch(() => { /* sin modo offline */ });
   }
-})();
+}
+// arranca cuando ya cargaron todos los archivos de la app
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
