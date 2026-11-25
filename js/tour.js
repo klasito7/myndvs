@@ -3,7 +3,7 @@
    se suman sus pasos con un v nuevo y se sube TOUR_V: la próxima vez que se abra, ofrece "Novedades"
    con solo esos pasos. El tutorial completo siempre muestra todos. */
 'use strict';
-const TOUR_V = 1;
+const TOUR_V = 2;
 const TOUR_KEY = 'myndvs-tour';
 const firstNote = () => notes().filter(n => !n.del && !n.arch).sort((a, b) => (b.pin - a.pin) || ((b.u || b.c) - (a.u || a.c)))[0];
 const STEPS = [
@@ -27,6 +27,8 @@ const STEPS = [
   { v: 1, tab: 'hoy', sel: '[data-a=search]', t: 'Buscar en todo', x: 'Busca en notas, diario, eventos y tareas a la vez. En la compu, la tecla <b>/</b> te lleva directo a la barra de carga.' },
   { v: 1, tab: 'hoy', sel: '#syncBtn', t: 'Sincronización', x: 'Este puntito te dice cómo está todo: <b style="color:#5fd39a">verde</b> al día, <b style="color:#f4b740">amarillo</b> falta subir algo o conectar Google (tocalo), <b style="color:#ff7b7b">rojo</b> hubo un error, gris sin conectar.' },
   { v: 1, sheet: () => openSettings(), sel: '#sheet .card', t: 'Ajustes', x: 'Calendario y tareas se sincronizan con Google; notas, audios y diario, con tu GitHub en Gists privados. Si ya usás Lifebgood en este navegador, se conecta solo. También podés exportar una copia con todo.' },
+  { v: 2, sheet: () => openSettings(), sel: '#cardG', t: 'Conectá Google', x: 'Si Lifebgood está en este navegador, el ID de cliente se toma solo. Si no, tocá <b>¿Dónde lo consigo?</b>: te lleva directo a Google Cloud → Credenciales para copiar el <b>ID de cliente</b> (el mismo de Lifebgood) y pegarlo acá.' },
+  { v: 2, sheet: () => openSettings(), sel: '#cardC', t: 'Conectá la nube', x: 'Para que tus notas y tu diario estén en el celu y en la compu hace falta un <b>token de GitHub</b> con permiso <b>gist</b> (sirve el de FUNVS). La guía tiene un link que lo crea con todo ya marcado.' },
   { v: 1, t: 'Instalala en el celu', x: 'En Chrome: menú <b>⋮</b> → <b>Agregar a la pantalla principal</b> (o <b>Instalar app</b>). Queda como una app más, abre al instante y funciona sin señal.' },
   { v: 1, end: true, t: '¡Listo!', x: 'Ya sabés usar todo. Podés volver a ver este tutorial cuando quieras desde <b>Ajustes → Tutorial</b>. Cuando sume cosas nuevas, te aviso y te muestro solo las novedades.' }
 ];
@@ -75,7 +77,7 @@ async function show() {
     <div class="tc-bar"><span class="tc-dots">${T.steps.map((x, j) => `<i class="${j === T.i ? 'on' : j < T.i ? 'ok' : ''}"></i>`).join('')}</span>
       ${T.i ? '<button class="ghost sm" data-t="back">Atrás</button>' : ''}
       ${s.end ? (T.made.length ? '<button class="ghost sm" data-t="clean">Borrar ejemplos</button>' : '') + '<button class="primary sm" data-t="done">Terminar</button>'
-        : s.wait && target ? '<button class="ghost sm" data-t="next">Saltear</button>' : `<button class="primary sm" data-t="next">${T.i ? 'Siguiente' : 'Empezar'}</button>`}</div>`;
+        : s.wait && target ? '<button class="ghost sm" data-t="next">Saltear</button>' : `<button class="primary sm" data-t="next">${T.i || T.onlyNew ? 'Siguiente' : 'Empezar'}</button>`}</div>`;
   if (target) target.scrollIntoView({ block: 'center', behavior: 'instant' });
   requestAnimationFrame(place);
   if (s.wait && target && /INPUT|TEXTAREA/.test(target.tagName)) setTimeout(() => target.focus(), 250);

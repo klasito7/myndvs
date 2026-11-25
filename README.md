@@ -36,7 +36,15 @@ Las dos apps viven en `klasito7.github.io`, así que comparten el navegador:
 - Lo que cumplís en Lifebgood se tacha en Google y Myndvs lo ve al sincronizar.
 - Myndvs deja un resumen en `localStorage['myndvs-bridge']` (eventos y tareas de los próximos 7 días) por si Lifebgood lo quiere usar.
 
+## Cargar el token de GitHub
+Si FUNVS o Lifebgood ya están en el mismo navegador, Myndvs lo toma solo. Si no:
+1. Abrí https://github.com/settings/tokens/new?scopes=gist&description=Myndvs (ya viene con el permiso **gist** marcado).
+2. Expiration: **No expiration**. No marques nada más. **Generate token**.
+3. Copiá el token (`ghp_…`) y pegalo en Ajustes → Nube → **Guardar**. Guardalo en un lugar seguro para tus otros aparatos (GitHub lo muestra una sola vez).
+
 ## Primer uso con Google (una sola vez)
+Si Lifebgood está en el mismo navegador, el ID de cliente se toma solo. Si no, copialo de https://console.cloud.google.com/apis/credentials (proyecto Lifebgood → tu ID de cliente de OAuth → **ID de cliente**) y pegalo en Ajustes → Google.
+
 1. En tu proyecto de Google Cloud (el de Lifebgood) tienen que estar habilitadas **Google Calendar API** y **Google Tasks API** (ya lo están si Lifebgood sincroniza tareas).
 2. El origen `https://klasito7.github.io` ya está autorizado, así que el mismo ID sirve.
 3. Abrí Myndvs y tocá el puntito de arriba: aparece la ventana de Google; aceptá.

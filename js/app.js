@@ -867,21 +867,36 @@ function openSettings() {
   const lbHas = !!lbCid(), tokAuto = !cfg.ghtok && !!ghTok();
   openSheet(`<div class="form">
     <div class="edbar"><button class="ib" data-a="close" aria-label="Cerrar">${ICO.back}</button><h2>Ajustes</h2></div>
-    <section class="card"><h3>Google Calendar y Tasks</h3>
-      ${gCid() ? `<p class="mute">${cfg.gcid ? 'ID de cliente propio.' : 'Uso el mismo ID de cliente que Lifebgood.'} ${cfg.glast ? 'Última sincronización ' + ago(cfg.glast) + '.' : 'Todavía no sincronizaste.'}</p>
+    <section class="card" id="cardG"><h3>Google Calendar y Tasks</h3>
+      ${gCid() ? `<p class="mute">${cfg.gcid ? 'ID de cliente propio guardado.' : 'Encontré el ID de cliente de Lifebgood en este navegador y lo uso.'} ${cfg.glast ? 'Última sincronización ' + ago(cfg.glast) + '.' : 'Todavía no sincronizaste.'}</p>
         ${cfg.gerr && cfg.gerr !== 'notoken' ? `<p class="warn">⚠ ${esc(cfg.gerr)}</p>` : ''}
-        <div class="btns"><button class="primary" data-a="gsync">Sincronizar ahora</button><button class="ghost" data-a="gforget">Desconectar</button></div>
-        <p class="mute small">Se sincroniza tu calendario principal y tu lista de tareas principal. Los recordatorios del celu los sigue dando Google Calendar.</p>`
-      : `<p class="mute">${lbHas ? '' : 'Pegá el ID de cliente de tu proyecto de Google Cloud (el mismo de Lifebgood sirve tal cual: el sitio es el mismo).'}</p>
-        <div class="row"><input id="gcidIn" placeholder="…apps.googleusercontent.com"><button class="primary" data-a="gcidSave">Guardar</button></div>`}
+        <div class="btns"><button class="primary" data-a="gsync">Sincronizar ahora</button>${cfg.gcid ? '<button class="ghost" data-a="gforget">Quitar ID</button>' : ''}</div>
+        <p class="mute small">Se sincroniza tu calendario principal y tu lista de tareas principal. Los avisos del celu los sigue dando Google Calendar.</p>`
+      : `<p class="mute">Pegá el <b>ID de cliente</b> de tu proyecto de Google Cloud. Es el mismo de Lifebgood: sirve tal cual porque las dos apps están en el mismo sitio.</p>
+        <div class="row"><input id="gcidIn" placeholder="…apps.googleusercontent.com" autocomplete="off"><button class="primary" data-a="gcidSave">Guardar</button></div>`}
+      <details class="guide"${gCid() ? '' : ' open'}><summary>¿Dónde lo consigo?</summary><ol>
+        <li>Abrí <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud → Credenciales</a> con tu Gmail. Arriba, elegí el proyecto <b>Lifebgood</b>.</li>
+        <li>En <b>IDs de clientes de OAuth 2.0</b> tocá el que creaste (tipo <i>Aplicación web</i>).</li>
+        <li>Copiá el <b>ID de cliente</b> (termina en <code>.apps.googleusercontent.com</code>). No es secreto: no hace falta el "secreto del cliente".</li>
+        <li>Fijate que en <b>Orígenes autorizados de JavaScript</b> esté <code>https://klasito7.github.io</code> (ya está si Lifebgood te funciona).</li>
+        <li>En <a href="https://console.cloud.google.com/apis/library/tasks.googleapis.com" target="_blank" rel="noopener">Biblioteca</a> tienen que estar habilitadas <b>Google Calendar API</b> y <b>Google Tasks API</b>.</li>
+        <li>Pegalo acá arriba → <b>Guardar</b>. Se abre la ventana de Google: elegí tu cuenta y, si dice "Google no verificó esta app", tocá <b>Continuar</b> (es tu propia app).</li>
+      </ol>${gCid() && !cfg.gcid ? '<p class="mute small">¿Querés usar otro ID? <button class="link" data-a="gOwn">Pegar uno propio</button></p>' : ''}</details>
       ${ORIGIN_OK ? '' : '<p class="warn small">Esta vista previa no está en klasito7.github.io, así que Google no la va a dejar entrar. Funciona desde la versión publicada en GitHub Pages.</p>'}
     </section>
-    <section class="card"><h3>Nube para notas, audios e imágenes</h3>
-      ${ghTok() ? `<p class="mute">${tokAuto ? 'Uso el token de GitHub de Lifebgood/FUNVS.' : 'Token propio guardado.'} ${cfg.clast ? 'Última copia ' + ago(cfg.clast) + '.' : ''}</p>
+    <section class="card" id="cardC"><h3>Nube para notas, diario, audios e imágenes</h3>
+      ${ghTok() ? `<p class="mute">${tokAuto ? 'Encontré el token de GitHub de Lifebgood/FUNVS en este navegador y lo uso.' : 'Token propio guardado.'} ${cfg.clast ? 'Última copia ' + ago(cfg.clast) + '.' : ''}</p>
         ${cfg.cerr ? `<p class="warn">⚠ ${esc(cfg.cerr)}</p>` : ''}
         <div class="btns"><button class="primary" data-a="csync">Sincronizar ahora</button>${cfg.ghtok ? '<button class="ghost" data-a="cforget">Quitar token</button>' : ''}</div>
-        <p class="mute small">Se guardan en dos Gists privados de tu cuenta (texto y archivos). El diario va con las notas. Así lo que anotás en el celu aparece en la compu.</p>`
-      : `<p class="mute">Pegá un token de GitHub con permiso <b>gist</b> (sirve el mismo de FUNVS).</p><div class="row"><input id="ghIn" placeholder="ghp_… o github_pat_…"><button class="primary" data-a="ghSave">Guardar</button></div>`}
+        <p class="mute small">Se guardan en dos Gists privados de tu cuenta (texto y archivos). Así lo que anotás en el celu aparece en la compu.</p>`
+      : `<p class="mute">Pegá un <b>token de GitHub</b> con permiso <b>gist</b>. Sirve el mismo de FUNVS y Lifebgood.</p><div class="row"><input id="ghIn" placeholder="ghp_… o github_pat_…" autocomplete="off"><button class="primary" data-a="ghSave">Guardar</button></div>`}
+      <details class="guide"${ghTok() ? '' : ' open'}><summary>¿Dónde lo consigo?</summary><ol>
+        <li>Si lo tenés guardado (el de FUNVS), pegalo y listo. GitHub muestra cada token una sola vez, así que si no lo tenés, hacé uno nuevo:</li>
+        <li>Abrí <a href="https://github.com/settings/tokens/new?scopes=gist&description=Myndvs" target="_blank" rel="noopener">GitHub → token nuevo</a> (ya viene con el permiso <b>gist</b> marcado y el nombre "Myndvs").</li>
+        <li>En <b>Expiration</b> elegí <b>No expiration</b> (o la fecha que quieras; cuando venza, hacés otro).</li>
+        <li>No marques nada más: solo <b>gist</b>. Abajo de todo: <b>Generate token</b>.</li>
+        <li>Copiá el token (empieza con <code>ghp_</code>) y pegalo acá arriba → <b>Guardar</b>. Guardalo también en un lugar seguro para tus otros aparatos.</li>
+      </ol><p class="mute small">El token solo puede tocar tus Gists: no tus repos ni tu cuenta. Queda guardado en este navegador, nada más.</p>${ghTok() && !cfg.ghtok ? '<p class="mute small">¿Querés usar otro token? <button class="link" data-a="ghOwn">Pegar uno propio</button></p>' : ''}</details>
     </section>
     <section class="card"><h3>Copia de seguridad</h3><p class="mute">Un archivo con todo (incluye audios, imágenes y dibujos).</p>
       <div class="btns"><button class="ghost" data-a="export">Exportar</button><button class="ghost" data-a="import">Importar</button></div></section>
@@ -959,9 +974,11 @@ document.addEventListener('click', async e => {
     case 'toggleDone': showDone = !showDone; render(); break;
     case 'gsync': gsync(true); break;
     case 'csync': cloudSync(true); break;
-    case 'gcidSave': { const v = ($('#gcidIn').value || '').trim(); if (!/\.apps\.googleusercontent\.com$/.test(v)) { toast('Eso no parece un ID de cliente'); break; } cfg.gcid = v; saveCfg(); openSettings(); gsync(true); break; }
+    case 'gcidSave': { const v = ($('#gcidIn').value || '').trim().replace(/^https?:\/\//, ''); if (!/\.apps\.googleusercontent\.com$/.test(v)) { toast('Eso no parece un ID de cliente'); break; } cfg.gcid = v; saveCfg(); openSettings(); gsync(true); break; }
     case 'gforget': cfg.gcid = ''; cfg.gsync = ''; cfg.glast = 0; cfg.gerr = ''; gTok = null; try { sessionStorage.removeItem('myndvs-gtok'); } catch (x) { /* nada */ } saveCfg(); openSettings(); toast(lbCid() ? 'Desconectado (Lifebgood tiene su propio ID: se sigue usando)' : 'Google desconectado'); break;
     case 'ghSave': { const v = ($('#ghIn').value || '').trim(); if (!/^(ghp_|github_pat_|gho_)/.test(v)) { toast('Eso no parece un token de GitHub'); break; } cfg.ghtok = v; saveCfg(); openSettings(); cloudSync(true); break; }
+    case 'gOwn': { const d = b.closest('details'); d.insertAdjacentHTML('beforeend', '<div class="row"><input id="gcidIn" placeholder="…apps.googleusercontent.com" autocomplete="off"><button class="primary" data-a="gcidSave">Guardar</button></div>'); b.parentElement.remove(); $('#gcidIn').focus(); break; }
+    case 'ghOwn': { const d = b.closest('details'); d.insertAdjacentHTML('beforeend', '<div class="row"><input id="ghIn" placeholder="ghp_… o github_pat_…" autocomplete="off"><button class="primary" data-a="ghSave">Guardar</button></div>'); b.parentElement.remove(); $('#ghIn').focus(); break; }
     case 'cforget': cfg.ghtok = ''; saveCfg(); openSettings(); break;
     case 'export': exportAll(); break;
     case 'import': $('#importIn').value = ''; $('#importIn').click(); break;
