@@ -1,0 +1,20 @@
+{
+  "name": "Myndvs",
+  "short_name": "Myndvs",
+  "description": "Notas, audios, imágenes, dibujos, calendario y tareas en un solo lugar",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#101217",
+  "theme_color": "#101217",
+  "lang": "es-AR",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ],
+  "shortcuts": [
+    { "name": "Nueva nota", "url": "./#nota" },
+    { "name": "Grabar pensamiento", "url": "./#audio" }
+  ]
+}
