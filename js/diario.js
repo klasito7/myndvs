@@ -111,55 +111,112 @@ const DIA = (() => {
 const diaryId = k => 'd-' + k;
 const diary = () => [...ITEMS.values()].filter(x => x.k === 'diary' && !x.gone && (x.text || '').trim());
 const words = s => ((s || '').match(/\S+/g) || []).length;
+// un día queda "abierto" hasta que lo cerrás a mano; los de antes de esta función cuentan como cerrados
+const isClosed = e => e.closed === true || (e.closed === undefined && e.date < today());
+const openPast = () => diary().filter(e => e.date < today() && !isClosed(e)).sort((a, b) => a.date.localeCompare(b.date));
+// días sin escribir: desde tu primer día (máx. 60 días para atrás) hasta ayer
+function missingDays() {
+  const L = diary(); if (!L.length) return [];
+  const first = L.reduce((m, e) => e.date < m ? e.date : m, today()), from = first > addDays(today(), -60) ? first : addDays(today(), -60), out = [];
+  for (let k = from; k < today(); k = addDays(k, 1)) { const e = ITEMS.get(diaryId(k)); if (!e || e.gone || !(e.text || '').trim()) out.push(k); }
+  return out.reverse();
+}
 async function diarySet(date, text, opt) {
   const id = diaryId(date), old = ITEMS.get(id);
-  const it = old || { id, k: 'diary', date, c: Date.now() };
+  const it = old || { id, k: 'diary', date, c: Date.now(), closed: false };
+  if (old && old.gone) { it.closed = false; delete it.closedAt; }
   it.text = text; it.gone = !text.trim(); it.date = date;
-  await save(it, Object.assign({ quiet: true }, opt || {}));
+  if (opt && opt.closed !== undefined) { it.closed = opt.closed; it.closedAt = opt.closed ? Date.now() : 0; }
+  await save(it, Object.assign({ quiet: true }, opt && opt.render ? { quiet: false } : {}));
   return it;
+}
+async function diaryClose(date, text) {
+  if (!(text || '').trim()) { toast('Escribí algo antes de cerrar el día'); return false; }
+  await diarySet(date, text, { closed: true });
+  toast(`✓ ${DIA.title(date).split(' de ')[0]} cerrado`, { label: 'Reabrir', fn: async () => { await diarySet(date, ITEMS.get(diaryId(date)).text, { closed: false }); render(); } });
+  return true;
 }
 
 /* ---------- vista ---------- */
-let diaryImport = null, diaryMonth = '';
+let diaryImport = null, diaryMonth = '', diaryShowMissing = false;
 function vDiario() {
-  const t = today(), cur = ITEMS.get(diaryId(t)), all = diary().filter(x => x.date !== t).sort((a, b) => b.date.localeCompare(a.date));
+  const t = today(), pend = openPast(), page = pend[0] ? pend[0].date : t, cur = ITEMS.get(diaryId(page));
+  const all = diary().filter(x => x.date !== page).sort((a, b) => b.date.localeCompare(a.date));
   const months = {}; all.forEach(e => { const m = e.date.slice(0, 7); (months[m] = months[m] || []).push(e); });
-  const streak = (() => { let n = 0, k = cur && (cur.text || '').trim() ? t : addDays(t, -1); while (ITEMS.get(diaryId(k)) && (ITEMS.get(diaryId(k)).text || '').trim()) { n++; k = addDays(k, -1); } return n; })();
+  const has = k => { const e = ITEMS.get(diaryId(k)); return e && !e.gone && (e.text || '').trim(); };
+  const streak = (() => { let n = 0, k = has(t) ? t : addDays(t, -1); while (has(k)) { n++; k = addDays(k, -1); } return n; })();
+  const miss = missingDays();
   const mName = m => cap1(new Date(m + '-15T12:00').toLocaleDateString('es-AR', { month: 'long', year: 'numeric' }).replace(' de ', ' '));
-  return `<div class="dhead"><h1 class="day">Diario</h1><span class="mute small">${all.length + (cur && (cur.text || '').trim() ? 1 : 0)} días${streak > 1 ? ` · racha de ${streak}` : ''}</span><span class="grow"></span><button class="chip" data-a="dimp">Importar días</button></div>
-  <article class="dtoday"><h2 class="dt">${DIA.title(t)}</h2>
-    <textarea id="dTx" placeholder="¿Cómo fue tu día? Lo que pasó, lo que sentiste, lo que no querés olvidar…">${esc(cur && !cur.gone ? cur.text : '')}</textarea>
-    <p class="mute small" id="dInfo">${cur && cur.text ? words(cur.text) + ' palabras · se guarda solo' : 'Se guarda solo mientras escribís.'}</p></article>
-  ${Object.keys(months).length ? Object.entries(months).map(([m, L]) => `<section><h2>${mName(m)} <em>${L.length}</em></h2>${L.map(e => `<button class="dent" data-a="dopen" data-id="${e.id}"><b>${DIA.title(e.date)}</b><span>${esc((e.text || '').replace(/\s+/g, ' ').slice(0, 160))}</span></button>`).join('')}</section>`).join('')
-    : '<p class="empty">Los días anteriores van a aparecer acá. Si tenés un diario en otra app, tocá <b>Importar días</b>.</p>'}`;
+  const wasClosed = cur && !cur.gone && isClosed(cur);
+  return `<div class="dhead"><div class="dtit"><h1 class="day">Diario</h1><span class="mute small">${diary().length} días${streak > 1 ? ` · racha de ${streak} 🔥` : ''}</span></div><span class="grow"></span><button class="chip" data-a="dnew">+ Otro día</button><button class="chip" data-a="dimp">Importar</button></div>
+  ${page !== t ? `<div class="dpend">📌 Este día quedó abierto. Terminalo y cerralo para seguir con ${pend.length > 1 ? `los otros ${pend.length - 1} y después con hoy` : 'hoy'}.</div>` : ''}
+  <article class="dtoday${wasClosed ? ' closed' : ''}"><h2 class="dt">${DIA.title(page)}${page === t ? ' <small class="dtag">hoy</small>' : ''}</h2>
+    ${wasClosed ? `<p class="dclosed">✓ Cerraste este día. Podés seguir editándolo; los cambios se guardan solos.</p>` : ''}
+    <textarea id="dTx" data-date="${page}" placeholder="¿Cómo fue tu día? Lo que pasó, lo que sentiste, lo que no querés olvidar…">${esc(cur && !cur.gone ? cur.text : '')}</textarea>
+    <div class="dfoot"><span class="mute small" id="dInfo">${cur && cur.text ? words(cur.text) + ' palabras · guardado' : 'Se guarda solo mientras escribís.'}</span>
+      ${wasClosed ? '' : `<button class="primary sm" data-a="dclose" data-k="${page}">Guardar y cerrar el día</button>`}</div></article>
+  ${miss.length ? `<section class="dmiss"><h2>Te ${miss.length === 1 ? 'falta un día' : `faltan ${miss.length} días`} <em>${miss.length}</em></h2><div class="dchips">${(diaryShowMissing ? miss : miss.slice(0, 6)).map(k => `<button class="chip" data-a="dadd" data-k="${k}">+ ${cap1(new Date(k + 'T12:00').toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' }).replace(/\./g, ''))}</button>`).join('')}${miss.length > 6 && !diaryShowMissing ? `<button class="chip" data-a="dmore">Ver los ${miss.length}</button>` : ''}</div></section>` : ''}
+  ${pend.length > 1 ? `<section><h2>Sin cerrar <em>${pend.length - 1}</em></h2>${pend.slice(1).map(e => `<button class="dent open" data-a="dopen" data-id="${e.id}"><b>${DIA.title(e.date)} <small class="dtag">abierto</small></b><span>${esc((e.text || '').replace(/\s+/g, ' ').slice(0, 160))}</span></button>`).join('')}</section>` : ''}
+  ${Object.keys(months).length ? Object.entries(months).map(([m, L]) => `<section><h2>${mName(m)} <em>${L.length}</em></h2>${L.filter(e => !(e.date < t && !isClosed(e))).map(e => `<button class="dent${isClosed(e) ? '' : ' open'}" data-a="dopen" data-id="${e.id}"><b>${DIA.title(e.date)}${isClosed(e) ? '' : ' <small class="dtag">abierto</small>'}</b><span>${esc((e.text || '').replace(/\s+/g, ' ').slice(0, 160))}</span></button>`).join('')}</section>`).join('')
+    : '<p class="empty">Los días anteriores van a aparecer acá. Si tenés un diario en otra app, tocá <b>Importar</b>.</p>'}`;
 }
 let dT = null;
+/* borrador al instante en cada tecla: si cerrás la app en medio de una frase, al volver se recupera.
+   Con contraseña no se usa (quedaría sin cifrar): ahí se guarda cada 0,3 s. */
+const DRAFT = 'myndvs-draft-';
+function draft(date, text) { if (cfg.lock) return; try { localStorage.setItem(DRAFT + date, JSON.stringify({ text, t: Date.now() })); } catch (e) { /* nada */ } }
+function draftDone(date, text) { try { const d = JSON.parse(localStorage.getItem(DRAFT + date) || 'null'); if (d && d.text === text) localStorage.removeItem(DRAFT + date); } catch (e) { /* nada */ } }
+async function diaryRestoreDrafts() {
+  for (const k of Object.keys(localStorage)) {
+    if (!k.startsWith(DRAFT)) continue;
+    const date = k.slice(DRAFT.length);
+    try {
+      const d = JSON.parse(localStorage.getItem(k)), e = ITEMS.get(diaryId(date));
+      if (/^\d{4}-\d{2}-\d{2}$/.test(date) && d && typeof d.text === 'string' && (!e || (e.u || 0) < d.t) && (!e || e.text !== d.text)) await diarySet(date, d.text);
+    } catch (x) { /* nada */ }
+    localStorage.removeItem(k);
+  }
+}
+function flushDiary() { const tx = $('#dTx'); if (dT && tx) { clearTimeout(dT); dT = null; return diarySet(tx.dataset.date, tx.value); } }
 function bindDiary() {
   const tx = $('#dTx'); if (!tx) return;
   const grow = () => { tx.style.height = 'auto'; tx.style.height = Math.max(200, tx.scrollHeight) + 'px'; };
   grow();
   tx.oninput = () => {
-    grow(); clearTimeout(dT); $('#dInfo').textContent = words(tx.value) + ' palabras · guardando…';
-    dT = setTimeout(async () => { await diarySet(today(), tx.value); $('#dInfo').textContent = words(tx.value) + ' palabras · guardado'; }, 700);
+    grow(); clearTimeout(dT); $('#dInfo').textContent = words(tx.value) + ' palabras · guardando…'; draft(tx.dataset.date, tx.value);
+    dT = setTimeout(async () => { dT = null; const v = tx.value; await diarySet(tx.dataset.date, v); draftDone(tx.dataset.date, v); const i = $('#dInfo'); if (i) i.textContent = words(v) + ' palabras · guardado ✓'; }, cfg.lock ? 300 : 600);
   };
-  tx.onblur = () => { if (dT) { clearTimeout(dT); dT = null; diarySet(today(), tx.value); } };
+  tx.onblur = flushDiary;
 }
+// que no se pierda nada si cerrás la app en medio de una frase
+document.addEventListener('visibilitychange', () => { if (document.hidden) { flushDiary(); flushDiaryEd(); } });
+window.addEventListener('pagehide', () => { flushDiary(); flushDiaryEd(); });
+
+let dEdT = null, dEdCur = null;
+function flushDiaryEd() { if (dEdT && dEdCur) { clearTimeout(dEdT); dEdT = null; const ed = $('#dEd'); if (ed) return diarySet(dEdCur, ed.value); } }
 function diaryEditor(e) {
-  const orig = e.text || '';
+  const closed = isClosed(e) && !e.gone && (e.text || '').trim();
+  dEdCur = e.date;
   openSheet(`<div class="form dsheet">
     <div class="edbar"><button class="ib" data-a="close" aria-label="Cerrar">${ICO.back}</button><span class="grow"></span><button class="ib" data-a="ddel" data-id="${e.id}" aria-label="Borrar el día">${ICO.trash}</button></div>
-    <h2 class="dt">${DIA.title(e.date)}</h2>
+    <h2 class="dt">${DIA.title(e.date)}${closed ? '' : ' <small class="dtag">abierto</small>'}</h2>
     <label class="mute small">Fecha <input type="date" id="dDate" value="${e.date}" max="${today()}"></label>
-    <textarea id="dEd">${esc(e.text || '')}</textarea>
-    <p class="mute small">${words(e.text)} palabras</p></div>`, async () => {
+    <textarea id="dEd" placeholder="¿Qué pasó ese día?">${esc(e.text || '')}</textarea>
+    <div class="dfoot"><span class="mute small" id="dEdInfo">${words(e.text)} palabras · se guarda solo</span>
+      ${closed ? '<button class="ghost sm" data-a="dreopen">Reabrir</button>' : `<button class="primary sm" data-a="dcloseEd">Guardar y cerrar el día</button>`}</div></div>`, async () => {
     const v = $('#dEd').value, nd = $('#dDate').value || e.date;
+    clearTimeout(dEdT); dEdT = null;
     if (nd !== e.date) {
       const other = ITEMS.get(diaryId(nd));
-      const joined = other && (other.text || '').trim() ? other.text + '\n\n' + v : v;
-      await diarySet(e.date, ''); await diarySet(nd, joined);
-    } else if (v !== orig) await diarySet(e.date, v);
+      const joined = other && !other.gone && (other.text || '').trim() ? other.text + '\n\n' + v : v;
+      const wasClosed = isClosed(e);
+      await diarySet(e.date, ''); await diarySet(nd, joined, { closed: wasClosed });
+    } else await diarySet(e.date, v);
+    dEdCur = null;
   }, 'full');
-  autoGrow($('#dEd'));
+  const ed = $('#dEd'); autoGrow(ed);
+  ed.addEventListener('input', () => { clearTimeout(dEdT); $('#dEdInfo').textContent = words(ed.value) + ' palabras · guardando…'; draft(e.date, ed.value); dEdT = setTimeout(async () => { dEdT = null; const v = ed.value; await diarySet(e.date, v); draftDone(e.date, v); const i = $('#dEdInfo'); if (i) i.textContent = words(ed.value) + ' palabras · guardado ✓'; }, 600); });
+  if (!(e.text || '').trim()) setTimeout(() => ed.focus(), 200);
 }
 
 /* ---------- importar ---------- */
@@ -190,7 +247,7 @@ async function doImport() {
   for (const e of diaryImport) {
     const old = ITEMS.get(diaryId(e.date)), prev = old && !old.gone ? (old.text || '').trim() : '';
     if (prev && prev.includes(e.text.trim())) continue; // ya estaba (importado dos veces)
-    await diarySet(e.date, prev ? prev + '\n\n' + e.text : e.text); n++;
+    await diarySet(e.date, prev ? prev + '\n\n' + e.text : e.text, { closed: true }); n++;
   }
   diaryImport = null; await closeSheet(); toast(n ? `Importados ${n} días` : 'Esos días ya estaban');
 }
@@ -208,9 +265,16 @@ document.addEventListener('click', async e => {
   else if (a === 'dimpGo') { const r = DIA.parseAny($('#impTx').value, ''); showImport(r.entries, r.lost); }
   else if (a === 'dimpOk') doImport();
   else if (a === 'dopen') { const it = ITEMS.get(b.dataset.id); if (it) diaryEditor(it); }
+  else if (a === 'dclose') { await flushDiary(); const tx = $('#dTx'); if (await diaryClose(b.dataset.k, tx ? tx.value : '')) { const art = $('.dtoday'); if (art) art.classList.add('closing'); setTimeout(render, document.documentElement.classList.contains('rm') ? 0 : 420); } }
+  else if (a === 'dcloseEd') { const ed = $('#dEd'); clearTimeout(dEdT); dEdT = null; if (await diaryClose(dEdCur, ed.value)) { sheetClose = null; await closeSheet(); } }
+  else if (a === 'dreopen') { const ed = $('#dEd'); await diarySet(dEdCur, ed.value, { closed: false }); sheetClose = null; await closeSheet(); toast('Día reabierto'); }
+  else if (a === 'dadd') { const k = b.dataset.k; diaryEditor(ITEMS.get(diaryId(k)) || { id: diaryId(k), k: 'diary', date: k, text: '', closed: false }); }
+  else if (a === 'dmore') { diaryShowMissing = true; render(); }
+  else if (a === 'dnew') { const k = addDays(today(), -1); openSheet(`<div class="form"><div class="edbar"><button class="ib" data-a="close" aria-label="Cerrar">${ICO.back}</button><h2>Escribir otro día</h2></div><label class="mute small">¿Qué día?<input type="date" id="dPick" value="${k}" max="${today()}"></label><button class="primary" data-a="dpickGo">Abrir</button></div>`); }
+  else if (a === 'dpickGo') { const k = $('#dPick').value; if (!k || k > today()) { toast('Elegí un día de hoy para atrás'); return; } await closeSheet(); diaryEditor(ITEMS.get(diaryId(k)) && !ITEMS.get(diaryId(k)).gone ? ITEMS.get(diaryId(k)) : { id: diaryId(k), k: 'diary', date: k, text: '', closed: false }); }
   else if (a === 'ddel') {
     const it = ITEMS.get(b.dataset.id); if (!it) return; const txt = it.text;
-    sheetClose = null; await diarySet(it.date, ''); await closeSheet();
+    clearTimeout(dEdT); dEdT = null; sheetClose = null; await diarySet(it.date, ''); await closeSheet(); render();
     toast('Día borrado', { label: 'Deshacer', fn: async () => { await diarySet(it.date, txt); render(); } });
   }
 });

@@ -507,3 +507,22 @@ button:active:not(:disabled), .note:active, .lb:active, .wrcard:active { transfo
 html.rm *, html.rm *::before, html.rm *::after { animation: none !important; transition: none !important; }
 .gev.mid b { -webkit-line-clamp: 2; }
 @media (max-width: 639px) { .grid .nb { font-size: 14px; } }
+
+/* diario: días abiertos, cerrados y faltantes */
+.dtag { font: 600 11px/1 system-ui, sans-serif; color: var(--acc2); background: color-mix(in srgb, var(--acc) 16%, transparent); padding: 3px 7px; border-radius: 10px; vertical-align: middle; margin-left: 4px; }
+.dent.open { border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent); }
+.dent.open .dtag, .dsheet .dtag { color: var(--amber); background: color-mix(in srgb, var(--amber) 14%, transparent); }
+.dpend { display: block; width: 100%; text-align: left; background: color-mix(in srgb, var(--amber) 12%, var(--card)); border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent); border-radius: 12px; padding: 10px 13px; margin: 0 0 10px; font-size: 14px; color: var(--tx); }
+.dfoot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 0 4px; border-top: 1px solid var(--line); margin-top: 4px; }
+.dfoot > span { flex: 1; }
+.dtoday.closed { border-color: color-mix(in srgb, var(--green) 40%, var(--line)); }
+.dclosed { color: var(--green); font-size: 13px; margin: -2px 0 8px; }
+.dtoday.closing { animation: dclose .42s var(--ease) forwards; }
+@keyframes dclose { 40% { transform: scale(.985); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 50%, transparent); } 100% { opacity: .2; transform: translateY(-8px) scale(.97); } }
+.dchips { display: flex; flex-wrap: wrap; gap: 6px; }
+.dmiss h2 em { color: var(--amber); }
+.dhead .chip { padding: 6px 10px; }
+.dhead { flex-wrap: nowrap; align-items: center; gap: 6px; }
+.dtit { display: flex; flex-direction: column; min-width: 0; }
+.dtit h1.day { margin-bottom: 0; }
+.dtit .mute { margin: -2px 2px 8px; white-space: nowrap; }

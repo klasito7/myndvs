@@ -3,7 +3,7 @@
    se suman sus pasos con un v nuevo y se sube TOUR_V: la próxima vez que se abra, ofrece "Novedades"
    con solo esos pasos. El tutorial completo siempre muestra todos. */
 'use strict';
-const TOUR_V = 5;
+const TOUR_V = 6;
 const TOUR_KEY = 'myndvs-tour';
 const firstNote = () => notes().filter(n => !n.del && !n.arch).sort((a, b) => (b.pin - a.pin) || ((b.u || b.c) - (a.u || a.c)))[0];
 const STEPS = [
@@ -27,8 +27,10 @@ const STEPS = [
   { v: 5, tab: 'cal', sel: '#gbody, .mgrid', t: 'Arrastrá para cambiar la hora', x: 'En Día, Hoy y mañana o Semana: <b>mantené apretado</b> un evento y arrastralo a otra hora (o a otro día). Para cambiar cuánto dura, estirá la <b>rayita de abajo</b>. Con las tareas que tienen hora funciona igual.' },
   { v: 1, tab: 'cal', sel: '[data-a=newEv]', t: 'Eventos completos', x: 'Con el <b>+</b> (o tocando un evento) elegís horario o todo el día, repetición (diaria, semanal con días, mensual, anual, hasta cuándo), color y si en <b>Lifebgood</b> es misión Principal, Secundaria o Solo aviso. En uno que se repite podés borrar un solo día.' },
   { v: 5, tab: 'tareas', t: 'Tareas con hora', x: 'Las tareas pueden tener hora además del día: <b>- hoy 16:30 llamar al banco</b>. Las que tienen hora aparecen en el calendario en ese horario, y se marcan atrasadas si se pasó la hora.' },
+  { v: 6, tab: 'tareas', t: 'Avisos de tareas', x: 'Si una tarea tiene hora, elegís cuándo avisarte: a la hora, 5, 10, 15 o 30 minutos antes, 1 hora o 1 día antes (🔔). Con Google conectado, el aviso te llega al celu aunque Myndvs esté cerrada; se borra solo cuando la marcás hecha.' },
   { v: 1, tab: 'tareas', sel: '.task .tick', wait: 'tick', t: 'Completá una tarea', x: 'Tocá el círculo para marcarla como hecha. Si te equivocaste, tocá <b>Deshacer</b>. Las tareas se ordenan en atrasadas, hoy, próximas y sin fecha.' },
-  { v: 1, tab: 'diario', sel: '.dtoday', t: 'Tu diario', x: 'Una página por día, con el nombre del día como título. Escribís y se guarda solo. Arriba ves cuántos días llevás y tu racha.' },
+  { v: 1, tab: 'diario', sel: '.dtoday', t: 'Tu diario', x: 'Una página por día, con el nombre del día como título. Se guarda sola mientras escribís, y el día queda <b>abierto</b> hasta que tocás <b>Guardar y cerrar el día</b>. Si un día pasa sin cerrarse, te lo muestra primero para que lo termines.' },
+  { v: 6, tab: 'diario', sel: '.dhead', t: 'Días que faltan', x: 'Si te salteaste un día, aparece en <b>Te faltan</b> y lo completás con un toque. Con <b>+ Otro día</b> escribís cualquier fecha. Todos los días se pueden editar después, cerrados o no.' },
   { v: 1, tab: 'diario', sel: '[data-a=dimp]', t: 'Traé tu diario viejo', x: 'Pegá el texto o elegí los archivos de tu otra app (.txt, .md, .json o .csv). Detecta las fechas, te muestra qué días encontró antes de importar y no duplica si importás dos veces.' },
   { v: 1, tab: 'hoy', sel: '[data-a=search]', t: 'Buscar en todo', x: 'Busca en notas, diario, eventos y tareas a la vez. En la compu, la tecla <b>/</b> te lleva directo a la barra de carga.' },
   { v: 1, tab: 'hoy', sel: '#syncBtn', t: 'Sincronización', x: 'Este puntito te dice cómo está todo: <b style="color:#5fd39a">verde</b> al día, <b style="color:#f4b740">amarillo</b> falta subir algo o conectar Google (tocalo), <b style="color:#ff7b7b">rojo</b> hubo un error, gris sin conectar.' },

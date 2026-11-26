@@ -18,7 +18,11 @@ Un solo lugar para no olvidar nada: notas, audios, imágenes, dibujos, calendari
 - **Buscador** que busca en todo.
 - **Sin señal**: todo vive en el celu (IndexedDB) y se sincroniza cuando vuelve la conexión.
 
-## Lo nuevo (v1.6)
+## Lo nuevo (v1.7)
+- **Avisos de tareas**: si una tarea tiene hora, elegís el aviso (a la hora, 5/10/15/30 min, 1 h o 1 día antes; 🔔 en la lista). Con Google conectado, Myndvs crea un eventito "⏰" en tu calendario principal con notificación: suena en el celu aunque la app esté cerrada y se borra solo al marcar la tarea hecha (no aparece repetido en Myndvs ni en Lifebgood, que lo usa para saber la hora de la tarea). Sin Google, avisa mientras la app está abierta.
+- **Diario con días abiertos y cerrados**: se guarda solo mientras escribís (también si cerrás la app de golpe) y el día queda abierto hasta que tocás **Guardar y cerrar el día**. Si un día pasado quedó abierto, aparece primero (y en Hoy) para terminarlo. **Te faltan N días** muestra los días sin escribir para completarlos; **+ Otro día** abre cualquier fecha. Todos se pueden editar y reabrir.
+
+## v1.6
 - **Todos tus calendarios de Google** (Principal, Vélez, Automovilismo, Stream / TV, compartidos y feriados), cada uno con su color. Elegís cuáles ver (botón de capas en Calendario) y a cuál va cada evento (en el editor, o con **#nombre** en la barra: `sáb 21 Vélez vs Talleres #velez`). Si cambiás el calendario de un evento, se mueve en Google sin duplicarse. Los de solo lectura se ven pero no se editan.
 - **Feriados de Argentina** incorporados (2026 oficial) y actualizados solos desde argentinadatos.com (datos de argentina.gob.ar). Aviso en Hoy del feriado de hoy o del próximo. Si ya tenés el calendario de feriados de Google prendido, no se duplican.
 - **Tareas con hora** (`- hoy 16:30 llamar al banco`): aparecen en la grilla del calendario y se sincronizan con Google Tasks (la hora viaja en las notas de la tarea).

@@ -84,7 +84,7 @@ const DB = {
 };
 
 /* ---------- ajustes (chicos: localStorage) ---------- */
-const APP_V = '1.6 (25/11)';
+const APP_V = '1.7 (26/11)';
 const CFG_KEY = 'myndvs-cfg';
 let cfg = { gcid: '', gsync: '', glast: 0, gerr: '', ghtok: '', gist: '', mgist: '', login: '', clast: 0, cerr: '', up: [], mdel: [] };
 try { cfg = Object.assign(cfg, JSON.parse(localStorage.getItem(CFG_KEY) || '{}')); } catch (e) { /* sin almacenamiento */ }
@@ -112,6 +112,7 @@ function clean(it) {
   if (!['', 'd', 'w', 'm', 'y'].includes(o.rep || '')) o.rep = '';
   for (const k of ['cal', 'gcal']) if (o[k] != null && !/^[\w.@#+-]{1,200}$/.test(o[k])) o[k] = 'primary';
   if (!['auto', 'p', 's', 'i'].includes(o.lb || 'auto')) o.lb = 'auto';
+  if (o.rem != null && ![0, 5, 10, 15, 30, 60, 1440].includes(+o.rem)) o.rem = 0; if (o.rem != null) o.rem = +o.rem;
   o.days = Array.isArray(o.days) ? o.days.filter(d => Number.isInteger(d) && d >= 0 && d < 7) : [];
   o.ex = Array.isArray(o.ex) ? o.ex.filter(d => RX.date.test(d)) : [];
   o.media = Array.isArray(o.media) ? o.media.filter(m => m && RX.id.test(String(m.id)) && ['audio', 'img', 'draw'].includes(m.t)).map(m => ({ id: m.id, t: m.t, dur: +m.dur || 0 })) : [];
@@ -134,6 +135,7 @@ async function save(it, opt) {
   if (opt.fromRemote) return;
   if (it.k === 'note' || it.k === 'diary') cloudSoon(); else gSoon();
   bridge();
+  if (it.k === 'task') remLocal();
   if (!opt.quiet) render();
 }
 async function drop(id) { ITEMS.delete(id); await DB.del('items', id); }
@@ -197,7 +199,7 @@ async function capture(text) {
   const m = capMode(text), p = P.parse(text);
   let it;
   if (m === 'note') it = { id: uid(), k: 'note', text: text.replace(/^\s*-\s+/, ''), c: Date.now(), color: '', pin: false, arch: false, media: [] };
-  else if (m === 'task') it = { id: uid(), k: 'task', title: p.title || text, due: p.date || (tab === 'cal' ? selDay : null), time: p.time || null, done: false, notes: '', lb: 'auto', c: Date.now() };
+  else if (m === 'task') it = { id: uid(), k: 'task', title: p.title || text, due: p.date || (tab === 'cal' ? selDay : null), time: p.time || null, rem: p.time ? 0 : null, done: false, notes: '', lb: 'auto', c: Date.now() };
   else {
     const date = p.date || (tab === 'cal' ? selDay : today());
     let title = p.title || text, cal = cfg.defCal && (cfg.cals || {})[cfg.defCal] ? cfg.defCal : 'primary';
@@ -207,7 +209,7 @@ async function capture(text) {
   lastCap = it.id; capOver = null;
   await save(it);
   document.dispatchEvent(new CustomEvent('myndvs:cap', { detail: { k: m, id: it.id } }));
-  const where = m === 'note' ? 'Nota guardada' : m === 'task' ? `Tarea${it.due ? ' · ' + fmtShort(it.due) : ''}${it.time ? ' ' + it.time : ''}` : `Evento · ${fmtShort(it.date)}${it.start ? ' ' + it.start : ''}${it.cal && it.cal !== 'primary' ? ' · ' + calName(it.cal) : ''}`;
+  const where = m === 'note' ? 'Nota guardada' : m === 'task' ? `Tarea${it.due ? ' · ' + fmtShort(it.due) : ''}${it.time ? ' ' + it.time + ' · te aviso' : ''}` : `Evento · ${fmtShort(it.date)}${it.start ? ' ' + it.start : ''}${it.cal && it.cal !== 'primary' ? ' · ' + calName(it.cal) : ''}`;
   toast(where, { label: 'Deshacer', fn: async () => { const x = ITEMS.get(lastCap); if (x) { if (x.k === 'note') { x.gone = true; x.text = ''; await save(x); } else if (x.gid || x.tid) { x.del = true; await save(x); } else await drop(x.id); render(); } } });
 }
 
@@ -284,7 +286,7 @@ function taskRow(t) {
   return `<div class="task${t.done ? ' done' : ''}">
     <button class="tick" data-a="tick" data-id="${t.id}" aria-label="${t.done ? 'Desmarcar' : 'Completar'}"></button>
     <button class="ti" data-a="openTask" data-id="${t.id}">${esc(t.title)}${t.notes ? ' <i class="hasn">≡</i>' : ''}</button>
-    ${t.due ? `<span class="due${late ? ' late' : ''}">${fmtShort(t.due)}${t.time ? ' · ' + t.time : ''}</span>` : ''}
+    ${t.due ? `<span class="due${late ? ' late' : ''}">${t.time && t.rem != null && !t.done ? '🔔 ' : ''}${fmtShort(t.due)}${t.time ? ' · ' + t.time : ''}</span>` : ''}
   </div>`;
 }
 function lbCard() {
@@ -304,6 +306,7 @@ function vHoy() {
   return `<p class="greet">${greet()}</p><h1 class="day">${fmtLong(t)}</h1>
   ${fer.length ? `<div class="ferban">🇦🇷 Hoy es feriado: <b>${esc(fer[0].title)}</b></div>` : ferNext && ferNext[2] <= 10 ? `<div class="ferban soft">🇦🇷 Próximo feriado: <b>${esc(ferNext[1].title)}</b> · ${fmtShort(ferNext[0])} (${ferNext[2] === 1 ? 'mañana' : 'en ' + ferNext[2] + ' días'})</div>` : ''}
   ${typeof wrappedCard === 'function' ? wrappedCard() : ''}
+  ${(() => { const op = typeof openPast === 'function' ? openPast() : []; return op.length ? `<button class="dpend btn" data-a="godiario">📖 Te quedó abierto el diario ${op.length === 1 ? 'del ' + fmtShort(op[0].date).toLowerCase() : `de ${op.length} días`}: terminalo y cerralo →</button>` : ''; })()}
   ${lbCard()}
   <section><h2>Agenda</h2>${evs.length ? evs.map(e => evRow(e, t)).join('') : '<p class="empty">Nada agendado hoy.</p>'}
     ${next.length ? `<details class="next"${evs.length ? '' : ' open'}><summary>Próximos días (${next.length})</summary>${next.slice(0, 8).map(([k, e]) => `<div class="nx"><span>${fmtShort(k)}</span>${evRow(e, k)}</div>`).join('')}</details>` : ''}</section>
@@ -464,9 +467,11 @@ function taskEditor(t) {
     <div class="edbar"><button type="button" class="ib" data-a="close" aria-label="Cerrar">${ICO.back}</button><h2>${isNew ? 'Nueva tarea' : 'Tarea'}</h2><span class="grow"></span>
       ${isNew ? '' : `<button type="button" class="ib" data-a="delTask" aria-label="Borrar">${ICO.trash}</button>`}</div>
     <input name="title" class="big" placeholder="¿Qué hay que hacer?" value="${esc(t.title || '')}" required>
-    <div class="row"><label>Vence<input type="date" name="due" value="${t.due || ''}"></label><label class="tm">Hora <small>(opcional)</small><input type="time" name="time" value="${t.time || ''}"></label>
-      <div class="quick"><button type="button" class="chip" data-q="0">Hoy</button><button type="button" class="chip" data-q="1">Mañana</button><button type="button" class="chip" data-q="7">En 1 semana</button><button type="button" class="chip" data-q="">Sin fecha</button></div></div>
-    <div class="row"><label>En Lifebgood<select name="lb">${LBK.map(([v, x]) => `<option value="${v}"${(t.lb || 'auto') === v ? ' selected' : ''}>${x}</option>`).join('')}</select></label></div>
+    <div class="row"><label>Vence<input type="date" name="due" value="${t.due || ''}"></label><label class="tm">Hora<input type="time" name="time" value="${t.time || ''}"></label></div>
+    <div class="quick"><button type="button" class="chip" data-q="0">Hoy</button><button type="button" class="chip" data-q="1">Mañana</button><button type="button" class="chip" data-q="7">En 1 semana</button><button type="button" class="chip" data-q="">Sin fecha</button></div>
+    <div class="row"><label>Aviso 🔔<select name="rem" ${t.time ? '' : 'disabled'}>${REM.map(([v, x]) => `<option value="${v == null ? '' : v}"${(t.time ? (t.rem === undefined ? 0 : t.rem) : null) === v ? ' selected' : ''}>${x}</option>`).join('')}</select></label>
+      <label>En Lifebgood<select name="lb">${LBK.map(([v, x]) => `<option value="${v}"${(t.lb || 'auto') === v ? ' selected' : ''}>${x}</option>`).join('')}</select></label></div>
+    <p class="mute small hint" id="remHint"${t.time ? ' hidden' : ''}>Poné una hora para poder elegir el aviso.</p>
     <textarea name="notes" placeholder="Detalles">${esc(t.notes || '')}</textarea>
     <div class="btns"><button class="primary grow" type="submit">${isNew ? 'Agregar' : 'Guardar'}</button>${isNew ? '' : `<button type="button" class="ghost" data-a="tkDone">${t.done ? 'Desmarcar' : '✓ Hecha'}</button>`}</div>
     ${!isNew && t.c ? `<p class="mute small">Creada ${ago(t.c)}${t.done && t.doneAt ? ' · hecha ' + ago(t.doneAt) : ''}</p>` : ''}
@@ -474,10 +479,14 @@ function taskEditor(t) {
   const f = $('#tkForm');
   const dk2 = $('[data-a=tkDone]', f); if (dk2) dk2.onclick = async () => { await closeSheet(); toggleTask(t.id); };
   $$('[data-q]', f).forEach(b => { b.onclick = () => { f.due.value = b.dataset.q === '' ? '' : addDays(today(), +b.dataset.q); }; });
+  f.time.oninput = () => { f.rem.disabled = !f.time.value; $('#remHint').hidden = !!f.time.value; if (f.time.value && f.rem.value === '' && !f.rem.dataset.touched) f.rem.value = '0'; };
+  f.rem.onchange = () => { f.rem.dataset.touched = '1'; };
   f.onsubmit = async ev => {
     ev.preventDefault(); const fd = new FormData(f);
     t.title = (fd.get('title') || '').trim() || 'Sin título'; t.due = fd.get('due') || null; t.time = fd.get('time') || null; t.lb = fd.get('lb') || 'auto'; t.notes = fd.get('notes') || '';
     if (t.time && !t.due) t.due = today();
+    t.rem = t.time && fd.get('rem') !== '' && fd.get('rem') != null ? +fd.get('rem') : null;
+    if (t.rem != null) remAsk();
     if (!t.c) t.c = Date.now();
     await save(t, { quiet: true }); closeSheet();
   };
@@ -494,6 +503,26 @@ async function toggleTask(id) {
 async function delItem(it) {
   if (it.gid || it.tid) { it.del = true; await save(it, { quiet: true }); } else await drop(it.id);
   bridge();
+}
+
+/* ---------- avisos sin Google: mientras la app esté abierta (con Google, avisa el calendario aunque esté cerrada) ---------- */
+let remTimers = [];
+function remAsk() {
+  if (gCid()) return;
+  if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission().then(remLocal);
+  if (!localStorage.getItem('myndvs-remtip')) { localStorage.setItem('myndvs-remtip', '1'); toast('Conectá Google en Ajustes para que el aviso suene aunque la app esté cerrada'); }
+}
+function remLocal() {
+  remTimers.forEach(clearTimeout); remTimers = [];
+  if (gCid() || !('Notification' in window) || Notification.permission !== 'granted') return;
+  const now = Date.now();
+  for (const t of tasks().filter(remWant)) {
+    const at = new Date(`${t.due}T${t.time}:00`).getTime() - t.rem * 60000;
+    if (at > now && at - now < 864e5) remTimers.push(setTimeout(async () => {
+      const opt = { body: t.rem ? `A las ${t.time}` : 'Es ahora', tag: 'myndvs-' + t.id, icon: 'icon-192.png', badge: 'icon-192.png' };
+      try { (await navigator.serviceWorker.ready).showNotification('⏰ ' + t.title, opt); } catch (e) { try { new Notification('⏰ ' + t.title, opt); } catch (x) { /* nada */ } }
+    }, at - now));
+  }
 }
 
 /* ---------- grabar audio ---------- */
@@ -808,6 +837,7 @@ async function calPullOne(ck, cinfo, inter) {
   let n = 0;
   for (const g of items) {
     const loc = byGid(g.id, ck);
+    if (g.extendedProperties && g.extendedProperties.private && g.extendedProperties.private.mrem) { if (loc) await drop(loc.id); continue; }
     if (g.recurringEventId) {
       // una fecha de un evento que se repite: se borró o se movió
       const m = byGid(g.recurringEventId, ck), os = g.originalStartTime || {};
@@ -827,18 +857,44 @@ async function calPullOne(ck, cinfo, inter) {
   return n;
 }
 function toGTask(t) {
-  const mk = (t.lb && t.lb !== 'auto' ? `\n[lb:${t.lb}]` : '') + (t.time ? `\n[hora:${t.time}]` : '');
-  return { title: t.title, notes: (t.notes || '').replace(/\n?\[(lb|hora):[^\]]*\]/g, '') + mk, due: t.due ? t.due + 'T00:00:00.000Z' : null, status: t.done ? 'completed' : 'needsAction' };
+  const mk = (t.lb && t.lb !== 'auto' ? `\n[lb:${t.lb}]` : '') + (t.time ? `\n[hora:${t.time}]` : '') + (t.time && t.rem != null ? `\n[aviso:${t.rem}]` : '');
+  return { title: t.title, notes: (t.notes || '').replace(/\n?\[(lb|hora|aviso):[^\]]*\]/g, '') + mk, due: t.due ? t.due + 'T00:00:00.000Z' : null, status: t.done ? 'completed' : 'needsAction' };
 }
 async function taskPush(inter) {
   for (const t of [...ITEMS.values()].filter(x => x.k === 'task' && x.dirty)) {
     const base = `${TSK}/lists/${encodeURIComponent(t.lid || '@default')}/tasks`;
-    if (t.del) { if (t.tid) { try { await gapi(`${base}/${encodeURIComponent(t.tid)}`, { method: 'DELETE' }, inter); } catch (x) { if (x.status !== 404) throw x; } } await drop(t.id); continue; }
+    if (t.del) { if (t.tid) { try { await gapi(`${base}/${encodeURIComponent(t.tid)}`, { method: 'DELETE' }, inter); } catch (x) { if (x.status !== 404) throw x; } if (t.rsig && t.rsig !== 'none') await remDel(t.tid, inter).catch(() => {}); } await drop(t.id); continue; }
     const body = JSON.stringify(toGTask(t));
     let r;
     if (t.tid) { try { r = await gapi(`${base}/${encodeURIComponent(t.tid)}`, { method: 'PATCH', body }, inter); } catch (x) { if (x.status === 404) t.tid = null; else throw x; } }
     if (!t.tid) r = await gapi(`${TSK}/lists/@default/tasks`, { method: 'POST', body }, inter);
     t.tid = r.id; t.lid = t.lid || '@default'; t.dirty = false; await DB.put('items', t);
+  }
+}
+/* recordatorios de tareas: un eventito "⏰" en tu calendario principal con aviso a la hora elegida.
+   Así suena en el celu aunque Myndvs esté cerrada. El id sale del id de la tarea en Google (el mismo en todos tus aparatos). */
+const REM = [[null, 'Sin aviso'], [0, 'A la hora'], [5, '5 min antes'], [10, '10 min antes'], [15, '15 min antes'], [30, '30 min antes'], [60, '1 hora antes'], [1440, '1 día antes']];
+const remId = tid => 'mr' + [...tid].map(c => c.charCodeAt(0).toString(16).padStart(2, '0')).join('').slice(0, 900);
+const remWant = t => !t.del && !t.done && t.due && t.time && t.rem != null;
+const remSig = t => remWant(t) ? JSON.stringify([t.title, t.due, t.time, t.rem]) : 'none';
+function remBody(t) {
+  const [h, m] = t.time.split(':').map(Number), end = h * 60 + m + 15, eh = Math.min(23, Math.floor(end / 60)), em = end >= 24 * 60 ? 59 : end % 60;
+  return { summary: '⏰ ' + t.title, description: 'Recordatorio de una tarea de Myndvs. Se borra solo cuando la marcás hecha.', status: 'confirmed', transparency: 'transparent',
+    start: { dateTime: `${t.due}T${t.time}:00`, timeZone: TZ }, end: { dateTime: `${t.due}T${String(eh).padStart(2, '0')}:${String(em).padStart(2, '0')}:00`, timeZone: TZ },
+    reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: t.rem }] }, extendedProperties: { private: { mrem: '1' } } };
+}
+async function remDel(tid, inter) { try { await gapi(`${CAL}/calendars/primary/events/${remId(tid)}`, { method: 'DELETE' }, inter); } catch (x) { if (![404, 410].includes(x.status)) throw x; } }
+async function remPush(inter) {
+  for (const t of [...ITEMS.values()].filter(x => x.k === 'task' && x.tid && !x.dirty)) {
+    const sig = remSig(t);
+    if (t.rsig === sig) continue;
+    if (sig === 'none' && t.rsig === undefined && !(t.time && t.rem != null)) { t.rsig = 'none'; await DB.put('items', t); continue; }
+    if (sig !== 'none') {
+      const body = JSON.stringify(remBody(t)), url = `${CAL}/calendars/primary/events/${remId(t.tid)}`;
+      try { await gapi(url, { method: 'PATCH', body }, inter); }
+      catch (x) { if (x.status !== 404) throw x; await gapi(`${CAL}/calendars/primary/events`, { method: 'POST', body: JSON.stringify(Object.assign({ id: remId(t.tid) }, remBody(t))) }, inter); }
+    } else await remDel(t.tid, inter);
+    t.rsig = sig; await DB.put('items', t);
   }
 }
 async function taskPull(inter) {
@@ -851,13 +907,13 @@ async function taskPull(inter) {
       let t = byTid(k.id);
       if (t && t.dirty) continue;
       if (!t) { if (k.status === 'completed' && k.completed && Date.now() - Date.parse(k.completed) > 30 * 864e5) continue; t = { id: uid(), k: 'task', c: Date.now(), tid: k.id, lid: '@default' }; }
-      const mk = (k.notes || '').match(/\[lb:([psi])\]/), hr = (k.notes || '').match(/\[hora:(\d{2}:\d{2})\]/);
-      Object.assign(t, { time: hr ? hr[1] : null, title: k.title, notes: (k.notes || '').replace(/\n?\[(lb|hora):[^\]]*\]/g, ''), due: k.due ? k.due.slice(0, 10) : null, done: k.status === 'completed', doneAt: k.completed ? Date.parse(k.completed) : 0, lb: mk ? mk[1] : 'auto', dirty: false, u: Date.now() });
+      const mk = (k.notes || '').match(/\[lb:([psi])\]/), hr = (k.notes || '').match(/\[hora:(\d{2}:\d{2})\]/), av = (k.notes || '').match(/\[aviso:(\d{1,4})\]/);
+      Object.assign(t, { time: hr ? hr[1] : null, rem: av ? +av[1] : null, title: k.title, notes: (k.notes || '').replace(/\n?\[(lb|hora|aviso):[^\]]*\]/g, ''), due: k.due ? k.due.slice(0, 10) : null, done: k.status === 'completed', doneAt: k.completed ? Date.parse(k.completed) : 0, lb: mk ? mk[1] : 'auto', dirty: false, u: Date.now() });
       ITEMS.set(t.id, t); await DB.put('items', t); n++;
     }
     page = j.nextPageToken || '';
   } while (page && ++guard < 10);
-  for (const t of [...ITEMS.values()].filter(x => x.k === 'task' && x.tid && !x.dirty && (x.lid || '@default') === '@default' && !seen.has(x.tid))) await drop(t.id);
+  for (const t of [...ITEMS.values()].filter(x => x.k === 'task' && x.tid && !x.dirty && (x.lid || '@default') === '@default' && !seen.has(x.tid))) { if (t.rsig && t.rsig !== 'none') await remDel(t.tid, inter).catch(() => {}); await drop(t.id); }
   return n;
 }
 let gBusy = false, gT = null;
@@ -867,7 +923,7 @@ async function gsync(inter) {
   if (gBusy) return; gBusy = true; syncDot();
   // calendario y tareas por separado: si una falla, la otra igual se sincroniza
   const errs = [];
-  for (const part of [async () => { await calPush(inter); await calPull(inter); }, async () => { await taskPush(inter); await taskPull(inter); }]) {
+  for (const part of [async () => { await calPush(inter); await calPull(inter); }, async () => { await taskPush(inter); await taskPull(inter); await remPush(inter); }]) {
     try { await part(); } catch (e) { errs.push(e); if (String(e && e.message) === 'notoken' || /popup|access_denied|cid/.test(String(e && e.message))) break; }
   }
   if (!errs.length) { cfg.glast = Date.now(); cfg.gerr = ''; cfg.gfix = null; cfg.gwhy = ''; if (inter) toast('Google al día'); }
@@ -1149,6 +1205,7 @@ document.addEventListener('click', async e => {
     case 'cforget': cfg.ghtok = ''; saveCfg(); openSettings(); break;
     case 'export': exportAll(); break;
     case 'cals': calsSheet(); break;
+    case 'godiario': tab = 'diario'; render(); window.scrollTo(0, 0); break;
     case 'ferOn': cfg.feriados = b.checked; saveCfg(); break;
     case 'calOn': { const c = (cfg.cals || {})[b.dataset.k]; if (!c) break; c.on = b.checked; saveCfg(); if (c.on) gsync(false); break; }
     case 'lockOn': {
@@ -1201,6 +1258,7 @@ async function start() {
   try { await DB.open(); } catch (e) { $('#view').innerHTML = '<p class="empty">Este navegador no deja guardar datos (¿modo incógnito?).</p>'; return; }
   await lockAtStart();
   for (const raw of await DB.all('items')) { const it = clean(raw); if (it) ITEMS.set(it.id, it); }
+  if (typeof diaryRestoreDrafts === 'function') await diaryRestoreDrafts();
   if (!ITEMS.size && !localStorage.getItem('myndvs-hello')) {
     const n = { id: 'bienvenida', k: 'note', c: 1764072000000, u: 1764072000000, color: 'violeta', pin: true, arch: false, media: [],
       text: 'Bienvenido a Myndvs 👋\nEscribí abajo y apretá Enter:\n[ ] Un pensamiento → queda como nota\n[ ] "- comprar alimento" → tarea\n[ ] "vie 21 cena con Ulises" → evento\n[ ] El micrófono graba, la cámara guarda fotos y el lápiz abre para dibujar\n#myndvs' };
@@ -1211,7 +1269,7 @@ async function start() {
   if (typeof tourAuto === 'function' && !location.hash) tourAuto();
   if (gCid() && gTok && gTok.exp > Date.now()) gsync(false); else if (gCid()) { cfg.gerr = 'notoken'; cfg.gwhy = ''; syncDot(); }
   if (ghTok()) cloudSync(false);
-  ferRefresh();
+  ferRefresh(); remLocal();
   if (location.hash === '#audio') newNoteWith('rec'); else if (location.hash === '#nota') $('#capIn').focus();
   if (location.hash) history.replaceState(null, '', location.pathname);
   if ('serviceWorker' in navigator && ORIGIN_OK) {
